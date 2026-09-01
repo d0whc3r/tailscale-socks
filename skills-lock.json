@@ -1,6 +1,18 @@
 {
   "version": 1,
   "skills": {
+    "bash-defensive-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/shell-scripting/skills/bash-defensive-patterns/SKILL.md",
+      "computedHash": "9c63659b9130b214b75f84ec11ac715b647250ca8e0cde2357f4c578d43cfc24"
+    },
+    "bats-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/shell-scripting/skills/bats-testing-patterns/SKILL.md",
+      "computedHash": "c97069b8b9fb166f0c7fd9cf9deec968a2fd767f15b65a0d91477903b09e751c"
+    },
     "find-skills": {
       "source": "vercel-labs/skills",
       "sourceType": "github",
@@ -96,6 +108,18 @@
       "sourceType": "github",
       "skillPath": "skills/golang-testing/SKILL.md",
       "computedHash": "67c3c927af162b13da5b54b0e8503c9e471845c1c906f8360609326bba54bda9"
+    },
+    "technical-writing": {
+      "source": "cursor/plugins",
+      "sourceType": "github",
+      "skillPath": "pstack/skills/technical-writing/SKILL.md",
+      "computedHash": "0a1bf9d082feaaecc0fe7a808daf3fd03a91e9fad55dd785584b27c7b09420db"
+    },
+    "unslop": {
+      "source": "cursor/plugins",
+      "sourceType": "github",
+      "skillPath": "pstack/skills/unslop/SKILL.md",
+      "computedHash": "78f45b785f543d1bd82f55cd7be018239c769dc1462848a720b62a6d214ffc6d"
     }
   }
 }
