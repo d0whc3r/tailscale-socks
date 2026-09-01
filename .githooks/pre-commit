@@ -1,18 +1,50 @@
 #!/bin/sh
-# Pre-commit gate: format first, then the same `make check` CI runs.
+# Pre-commit gate: run only the checks the staged files call for.
 #
 # Enable with `make hooks`, skip one commit with `git commit --no-verify`.
-# `make check` looks at the working tree, not the index: a partial `git add`
+# The targets look at the working tree, not the index: a partial `git add`
 # is verified against what is on disk, like every other `make check` run.
 
 set -e
 
-make fmt
+staged=$(git diff --cached --name-only --diff-filter=ACM)
 
-# Re-stage what `make fmt` rewrote, so the commit carries the formatted file.
-# Restricted to paths already staged: nothing new sneaks into the commit.
-# `-r` matters — a bare `git add --` with no pathspec stages the whole tree.
-git diff --cached --name-only --diff-filter=ACM -z -- '*.go' |
-	xargs -0 -r git add --
+staged_match() { printf '%s\n' "$staged" | grep -qE "$1"; }
 
-exec make check
+ran=0
+
+# go.mod/go.sum without a .go change still moves dependencies: lint and test.
+if staged_match '\.go$|(^|/)go\.(mod|sum)$'; then
+	# Snapshot, before `make fmt` rewrites anything, the .go files staged in
+	# full — index and working tree identical. Those are the only ones safe to
+	# re-stage afterwards: `git add` takes the whole working tree copy, so a
+	# partially staged file would drag in the hunks the author kept back. The
+	# list has to be taken now; after `make fmt` every rewritten file is dirty.
+	restage=$(mktemp)
+	trap 'rm -f "$restage"' EXIT
+	git diff --cached --name-only --diff-filter=ACM -z -- '*.go' |
+		xargs -0 -r -n1 sh -c '
+			if git diff --quiet -- "$1"; then
+				printf "%s\0" "$1"
+			else
+				echo "pre-commit: $1 partially staged, leaving the staged copy as is" >&2
+			fi' _ \
+		>"$restage"
+
+	make fmt
+
+	# Re-stage what `make fmt` rewrote, so the commit carries the formatted
+	# file. Only paths from the snapshot: nothing new sneaks into the commit,
+	# and a bare `git add --` with no pathspec would stage the whole tree.
+	xargs -0 -r git add -- <"$restage"
+
+	make lint test
+	ran=1
+fi
+
+if staged_match '\.(zsh|bats|bash)$'; then
+	make test-sh
+	ran=1
+fi
+
+[ "$ran" = 1 ] || echo "pre-commit: no Go or shell changes staged, nothing to check"

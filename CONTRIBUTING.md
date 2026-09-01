@@ -18,7 +18,7 @@ make cover      # per-function statement coverage; cover-html opens a browser
 make vuln       # govulncheck (needs the network, so not part of check)
 make outdated   # direct deps and pinned tools with a newer version (network too)
 make fmt        # rewrite in place: gofmt + import grouping
-make hooks      # point git at .githooks/: fmt + check on every commit
+make hooks      # point git at .githooks/: check what each commit touches
 make release    # GoReleaser dry run of the release matrix into dist/
 make clean
 ```
@@ -36,9 +36,22 @@ make build OS=all ARCH=arm64      # every arm64 target
 `go run ...@latest`, never add a second linter config.
 
 `make hooks` sets `core.hooksPath` to the tracked `.githooks/` directory — one
-command per clone, no hook manager to install. `.githooks/pre-commit` runs
-`make fmt`, re-stages the files it rewrote that were already staged, then runs
-`make check`. `git commit --no-verify` skips it.
+command per clone, no hook manager to install. `.githooks/pre-commit` picks its
+checks from what is staged:
+
+| staged | runs |
+| --- | --- |
+| `*.go`, `go.mod`, `go.sum` | `make fmt`, re-stage the rewritten files, `make lint test` |
+| `*.zsh`, `*.bats`, `*.bash` | `make test-sh` |
+| anything else | nothing |
+
+Both groups staged means both run, which is `make check` plus the formatting
+pass. `git commit --no-verify` skips the hook entirely.
+
+Only files staged in full are re-staged after `make fmt`. A partially staged
+file — `git add -p`, or edited again after `git add` — is named and left alone,
+because `git add` would take the whole working tree copy and commit the hunks
+you kept back.
 
 ## Tests
 
