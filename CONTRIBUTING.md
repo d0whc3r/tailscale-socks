@@ -62,7 +62,7 @@ The subjects `git merge` and `git revert` write themselves are let through, and 
 
 ### The zsh helpers
 
-`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), along with `packaging/test`, run by `make test-sh` with a `zsh -n` syntax pass over the zsh and an `sh -n` pass over `contrib/install.sh` and `packaging/*.sh`. Same rule: no network, no node. `packaging/install.command` is covered by the same `sh -n` pass. `packaging/windows.nsi` and `packaging/path.ps1` have no syntax check of their own — `make release` compiles the one and the Windows installer exercises the other.
+`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), along with `packaging/test`, run by `make test-sh` with a `zsh -n` syntax pass over the zsh and an `sh -n` pass over `contrib/install.sh` and `packaging/*.sh`. Same rule: no network, no node — the installer suite points `TSPROXY_BASE_URL` at a fixture directory over `file://`, so nothing it runs leaves the machine. `packaging/windows.nsi` and `packaging/path.ps1` have no syntax check of their own — `make release` compiles the one and the Windows installer exercises the other.
 
 bats runs in bash and cannot call a zsh function directly, so `contrib/test/` has a seam. `contrib/test/harness.zsh` sources the contrib script under a chosen `$OSTYPE` and evals a zsh snippet piped in on stdin; the bats side wraps it in `zsh_run`. Write the snippet as a **quoted** heredoc, so it reaches zsh byte for byte:
 
@@ -157,29 +157,29 @@ Break one of these and the program is subtly wrong, not obviously broken.
 
 The highest bump in the range wins. The first tag is `v1.0.0`, since there is no earlier one to bump. Only subjects are matched for the type prefix, so a commit body that quotes `feat:` does not cut a release; `packaging/test/version.bats` covers each rule.
 
-The `release` job then runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) on that tag: it builds the three packages, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree.
+The `release` job then runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) on that tag: it builds the release files, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree.
 
 It hangs off the `tag` job rather than off a tag push, because a tag pushed with `GITHUB_TOKEN` deliberately does not start a workflow. `ci.yml` therefore listens to `main` only — a tag pushed by hand starts nothing, and pushing one is not how a release is cut any more. When the script finds HEAD already tagged it reports `push=false`, which is what lets a failed `release` be re-run without a second tag.
 
-Each tag produces exactly three files, one installer per platform, and nothing else: no tar.gz, no zip. Only x86-64 is packaged, except the disk image, which carries a universal binary. All three ship the same payload — executable, zsh service helper for that platform, the configuration template, README, service docs, license.
+Each tag produces one installer for Linux and one for Windows, and nothing else: no tar.gz, no zip. Both are x86-64. On top of that come the bare files `contrib/install.sh` fetches — a binary per platform, the two zsh backends and the configuration template — which is the only way to install on macOS and the default one on Linux. Every platform ends up with the same payload: executable, zsh service helper for that platform, the configuration template.
 
-The `.deb` and the Windows setup ship `.env.example` renamed to `.env`, so the user copies it without a rename; the disk image keeps the `.env.example` name, because `contrib/install.sh` is what turns it into `~/.tailscale/.env`. On Windows that lands next to the executable, which `dotEnvPaths` reads, so it is the live configuration from the first install on: the NSIS script writes it with `SetOverwrite off` and the uninstaller leaves it, or a reinstall would clobber a file holding `TS_AUTHKEY`.
+The `.deb` and the Windows setup ship `.env.example` renamed to `.env`, so the user copies it without a rename; the loose asset keeps the `.env.example` name, because `contrib/install.sh` is what turns it into `~/.tailscale/.env`. On Windows that lands next to the executable, which `dotEnvPaths` reads, so it is the live configuration from the first install on: the NSIS script writes it with `SetOverwrite off` and the uninstaller leaves it, or a reinstall would clobber a file holding `TS_AUTHKEY`.
 
 | Artifact | Built by | Payload goes to |
 |---|---|---|
 | `.deb` | GoReleaser `nfpms` (pure Go) | `/usr/bin`, `/usr/share/tailscale-socks`, `/usr/share/doc` |
-| `.dmg` | `packaging/macos-dmg.sh` → `xorriso` | wherever `install.sh` puts it — the image is a mountable copy of the payload |
+| loose assets | GoReleaser `lipo` + `release.extra_files` | `~/.local/bin` and `~/.local/share/tailscale-socks`, put there by `contrib/install.sh` |
 | setup `.exe` | `packaging/windows-nsis.sh` → `packaging/windows.nsi` → `makensis` | `%LOCALAPPDATA%\Programs\tailscale-socks`, added to the user `PATH` |
 
-The two scripts run as GoReleaser hooks rather than as a step after the release, so their output is inside `SHA256SUMS.txt` like the `.deb`. GoReleaser's own archive step is turned off with `--skip=archive`, in the workflow and in `make release` alike: an empty `archives:` block would only make it fall back to its tar.gz default. The `nsi` script gets one architecture at a time from the build post-hook, which no-ops on every target that is not Windows; the disk image gets the universal binary GoReleaser makes with `lipo`, so there is one image for every Mac.
+The Windows setup is built by a GoReleaser hook rather than by a step after the release, so its output is inside `SHA256SUMS.txt` like the `.deb`. The `nsi` script gets one architecture at a time from the build post-hook, which no-ops on every target that is not Windows.
 
-**Everything cross-builds, so the release job runs on ubuntu.** That is the reason macOS gets a `.dmg` and not a `.pkg`: `pkgbuild` ships only with Xcode's command line tools, and the tools that would replace it on Linux — Apple's `xar`, plus `bomutils` for the receipt — are packaged in no Ubuntu release and unmaintained since 2012. `xorriso` is in the archive and makes an ISO 9660 image with Rock Ridge extensions, which macOS mounts and which carries the Unix permission bits the executable and `install.command` need.
+GoReleaser's own archive step is turned off with `--skip=archive`, in the workflow and in `make release` alike: an empty `archives:` block would only make it fall back to its tar.gz default. With no archives the bare binaries are not artifacts either, so `release.extra_files` publishes them straight out of `dist/` and a `name_template` gives each one the unversioned name `contrib/install.sh` asks for — `checksum.extra_files` repeats the same globs and names, or `SHA256SUMS.txt` would list files nobody can download.
 
-The image is a mountable copy of that payload plus `packaging/install.command`, which exists only because Finder runs a `.command` in Terminal and opens a `.sh` in a text editor. It ships `.env.example`, not `.env` like the other two packages, because `contrib/install.sh` is what turns it into `~/.tailscale/.env` — and a read-only disk image is not somewhere you could edit a config anyway.
+**macOS installs over `curl` because nothing there is signed**, and a Developer ID costs $99/year. Anything downloaded through a browser carries `com.apple.quarantine`, which propagates from a disk image to its contents and from there to every copy made of them; Gatekeeper kills an unsigned quarantined binary with `Killed: 9` and no diagnostic. That is what a `.dmg` used to ship into, and it is why there is no installer format worth building here: `curl` sets no quarantine attribute, so the plain assets work where a package does not. `contrib/install.sh` also strips the attribute from the binary it installs, for the copy that arrived some other way. If the project ever gets a Developer ID, sign the binary and notarize with `xcrun notarytool`, which does need a Mac.
 
-Nothing is signed — a Developer ID costs $99/year. If that changes, sign the binary before `packaging/macos-dmg.sh` stages it and notarize the image with `xcrun notarytool`, which does need a Mac.
+**Everything else cross-builds, so the release job runs on ubuntu.** `nfpm` is pure Go and `makensis` is an apt package; nothing in the matrix needs a macOS runner.
 
-`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser makensis xorriso`, while `make build OS=all ARCH=all` cross-builds the full matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
+`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser makensis`, while `make build OS=all ARCH=all` cross-builds the full matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
 
 ## Security and license
 

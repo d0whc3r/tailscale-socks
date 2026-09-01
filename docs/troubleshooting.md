@@ -78,8 +78,13 @@ That is Tailscale's own diagnosis of the node, passed through unchanged.
 itself. `tailscale-socks config` prints the settings actually in effect, without
 joining anything — useful when a `.env` is not the one you think it is.
 
-## macOS will not open the installer
+## macOS kills the binary: `Killed: 9`
 
-The disk image is not signed with a Developer ID, so a browser download is
-quarantined. Right-click `install.command` → **Open**, or run `./install.sh`
-from the mounted volume in a terminal, which skips quarantine entirely.
+Nothing here is signed with a Developer ID, so anything that arrives through a
+browser is quarantined, and Gatekeeper kills a quarantined unsigned binary with
+no message at all. Install with the `curl | sh` line from the README — `curl`
+sets no quarantine attribute — or clear it by hand:
+
+```sh
+xattr -d com.apple.quarantine ~/.local/bin/tailscale-socks
+```

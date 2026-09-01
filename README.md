@@ -14,28 +14,33 @@ Outbound traffic can leave through an **exit node**, and **subnet routers** are 
 
 ## 1. Install
 
-Download the package for your platform from the [latest release](https://github.com/d0whc3r/tailscale-socks/releases/latest) and run it:
+On macOS and Linux, one command — it installs into `~/.local/bin` and `~/.local/share`, no administrator:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/d0whc3r/tailscale-socks/main/contrib/install.sh | sh
+```
+
+Or download a package from the [latest release](https://github.com/d0whc3r/tailscale-socks/releases/latest) and run it:
 
 | Platform | Download | Install |
 |---|---|---|
-| macOS | `tailscale-socks-darwin-universal.dmg` | open it, then double-click `install.command` |
 | Linux | `tailscale-socks-<version>-amd64.deb` | `sudo apt install ./tailscale-socks-<version>-amd64.deb` |
 | Windows | `tailscale-socks-setup-windows-amd64.exe` | run it — per-user, no administrator |
 
-Every package is x86-64, except the macOS image, which holds a universal binary and runs on both Apple silicon and Intel. On any other architecture, build from source: see [CONTRIBUTING.md](CONTRIBUTING.md). The three files on the release page are listed in `SHA256SUMS.txt`:
+Windows has no `curl` line: run the setup. Linux is x86-64 either way; the macOS binary is universal and runs on Apple silicon and Intel alike. On any other architecture, build from source: see [CONTRIBUTING.md](CONTRIBUTING.md). Every file on the release page is listed in `SHA256SUMS.txt`:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS.txt   # shasum -a 256 -c on macOS
 ```
 
-Nothing is signed with a Developer ID, so macOS quarantines the image: the first `install.command` needs a right-click → **Open**. Running `./install.sh` from the mounted volume in a terminal skips that.
+macOS has no downloadable installer for one reason: nothing here is signed with a Developer ID, and a browser download is quarantined — Gatekeeper then kills the binary on sight, with `Killed: 9` and no explanation. `curl` sets no quarantine attribute, so what it writes just runs.
 
 ## 2. Load the shell helpers
 
 Add the line for your install to `~/.zshrc`:
 
 ```sh
-# macOS
+# macOS and Linux, installed with curl
 source "$HOME/.local/share/tailscale-socks/contrib/tailscale-socks.zsh"
 
 # Linux .deb
@@ -45,7 +50,7 @@ source /usr/share/tailscale-socks/contrib/tailscale-socks.zsh
 source "$(cygpath -u "$LOCALAPPDATA")/Programs/tailscale-socks/contrib/tailscale-socks.zsh"
 ```
 
-Then make sure `~/.tailscale/.env` exists. The macOS installer writes it for you; the `.deb` does not, so copy it — every line in it is commented out, so an untouched copy keeps the defaults:
+Then make sure `~/.tailscale/.env` exists. The `curl` installer writes it for you; the `.deb` does not, so copy it — every line in it is commented out, so an untouched copy keeps the defaults:
 
 ```sh
 mkdir -p ~/.tailscale

@@ -105,10 +105,10 @@ jobs:
   # hangs off the `tag` job rather than off a tag push, because a tag pushed
   # with GITHUB_TOKEN deliberately does not start a workflow.
   #
-  # Every installer is cross-built from here: nfpm is pure Go, makensis and
-  # xorriso are apt packages. Nothing in the matrix needs a macOS runner —
-  # that is why the disk image is an ISO 9660 built by xorriso and not a .pkg,
-  # which only Xcode's pkgbuild can produce.
+  # Everything is cross-built from here: nfpm is pure Go and makensis is an apt
+  # package. Nothing in the matrix needs a macOS runner — that is why macOS
+  # ships a bare universal binary and not a .pkg, which only Xcode's pkgbuild
+  # can produce and which Gatekeeper would block unsigned anyway.
   release:
     if: needs.tag.outputs.tag != ''
     needs: tag
@@ -128,7 +128,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: installer toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis xorriso
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis
       - uses: goreleaser/goreleaser-action@v7
         with:
           args: release --clean --skip=archive

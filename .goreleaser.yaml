@@ -12,8 +12,9 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: [-s -w]
-    # Only what the release ships: one .deb, one .dmg, one .exe. The two
-    # darwin targets exist solely to be lipo'd into the universal binary.
+    # Only what the release ships: a .deb and an .exe, plus the bare binaries
+    # `contrib/install.sh` fetches. The two darwin targets exist solely to be
+    # lipo'd into the universal one.
     targets: [darwin_amd64, darwin_arm64, linux_amd64, windows_amd64]
     # The hook fires once per target and no-ops on everything but Windows;
     # running it here rather than after the release keeps the installer inside
@@ -22,23 +23,23 @@ builds:
       post:
         - ./packaging/windows-nsis.sh {{ .Os }} {{ .Arch }} {{ .Path }} {{ .Version }}
 
-# One .dmg for every Mac, instead of one per architecture. `replace: true`
-# drops the per-architecture darwin binaries: nothing else consumes them.
+# One binary for every Mac, instead of one per architecture. `replace: true`
+# drops the per-architecture darwin builds: nothing else consumes them.
 universal_binaries:
   - id: universal
     ids: [tailscale-socks]
     replace: true
-    hooks:
-      post: ./packaging/macos-dmg.sh {{ .Path }} {{ .Version }} dist/tailscale-socks-darwin-universal.dmg
 
-# No tar.gz, no zip: the release is the three native installers and nothing
-# else. An empty `archives` is not enough — GoReleaser fills in its tar.gz
-# default — so the whole step is skipped with `--skip=archive`, in the Makefile
-# and in the release workflow alike.
+# No tar.gz, no zip: the bare binaries below are published as they are. An
+# empty `archives` is not enough — GoReleaser fills in its tar.gz default — so
+# the whole step is skipped with `--skip=archive`, in the Makefile and in the
+# release workflow alike.
 
-# The release, in full: a .deb on Linux, a mountable .dmg on macOS, an NSIS
-# setup on Windows. Each one carries the same payload — binary, zsh helpers,
-# configuration template, docs — put where that platform expects it.
+# The release, in full: a .deb on Linux and an NSIS setup on Windows, each
+# carrying the same payload — binary, zsh helpers, configuration template,
+# docs — put where that platform expects it. macOS has no installer format
+# that works unsigned, so it gets the pieces as plain assets and
+# `contrib/install.sh` curls them into place.
 nfpms:
   - id: deb
     ids: [tailscale-socks]
@@ -76,10 +77,15 @@ nfpms:
 
 checksum:
   name_template: SHA256SUMS.txt
-  # The .dmg and the NSIS setup are built by hooks, so GoReleaser does not
-  # track them as artifacts; without this they would ship unchecksummed.
+  # With the archive step skipped, the bare binaries are not release artifacts
+  # and the NSIS setup is written by a hook, so none of the three is tracked;
+  # without this they would ship unchecksummed. Same globs and names as
+  # `release.extra_files` below, or the sums would not match the assets.
   extra_files:
-    - glob: dist/tailscale-socks-darwin-universal.dmg
+    - glob: dist/universal_darwin_all/tailscale-socks
+      name_template: tailscale-socks-darwin-universal
+    - glob: dist/tailscale-socks_linux_amd64*/tailscale-socks
+      name_template: tailscale-socks-linux-amd64
     - glob: dist/tailscale-socks-setup-windows-*.exe
 
 # Release notes grouped by conventional commit type. Anything that is not
@@ -114,6 +120,20 @@ release:
   github:
     owner: d0whc3r
     name: tailscale-socks
+  # What `contrib/install.sh` fetches: a binary per platform plus the files
+  # the .deb and the Windows setup carry inside them. Names are unversioned
+  # and prefixed, so `releases/latest/download/<name>` is a stable URL and the
+  # assets are still telling apart on the release page.
   extra_files:
-    - glob: dist/tailscale-socks-darwin-universal.dmg
+    - glob: dist/universal_darwin_all/tailscale-socks
+      name_template: tailscale-socks-darwin-universal
+    - glob: dist/tailscale-socks_linux_amd64*/tailscale-socks
+      name_template: tailscale-socks-linux-amd64
     - glob: dist/tailscale-socks-setup-windows-*.exe
+    - glob: contrib/tailscale-socks.zsh
+    - glob: contrib/platform/darwin.zsh
+      name_template: tailscale-socks-darwin.zsh
+    - glob: contrib/platform/linux.zsh
+      name_template: tailscale-socks-linux.zsh
+    - glob: .env.example
+      name_template: tailscale-socks.env.example

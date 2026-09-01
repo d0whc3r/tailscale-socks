@@ -66,16 +66,14 @@ run: build
 
 # Release artifacts are GoReleaser's job, so the matrix lives in one place
 # (.goreleaser.yaml): this is the local dry run, CI runs the real thing on a tag
-# push. Needs makensis for the Windows setup and xorriso for the macOS disk
-# image; neither needs a Mac, which is why CI builds every installer on ubuntu.
+# push. Needs makensis for the Windows setup, which does not need a Mac either,
+# which is why CI builds every artifact on ubuntu.
 # Cross-building without GoReleaser still works: make build OS=all ARCH=all
 release:
 	@command -v goreleaser >/dev/null 2>&1 || \
 		{ echo "goreleaser not installed: brew install goreleaser"; exit 1; }
 	@command -v makensis >/dev/null 2>&1 || \
 		{ echo "makensis not installed: brew install makensis"; exit 1; }
-	@command -v xorriso >/dev/null 2>&1 || \
-		{ echo "xorriso not installed: brew install xorriso"; exit 1; }
 	goreleaser release --snapshot --clean --skip=archive
 
 # -race because every listener runs in its own goroutine.
@@ -106,7 +104,7 @@ lint: fmt-check vet
 # Every service manager is stubbed, so all three backends are exercised on
 # whatever machine runs this: nothing is installed and no node is started.
 ZSHFILES := contrib/tailscale-socks.zsh contrib/platform/*.zsh contrib/test/*.zsh
-SHFILES := contrib/install.sh packaging/*.sh packaging/install.command .githooks/*
+SHFILES := contrib/install.sh packaging/*.sh .githooks/*
 
 test-sh:
 	@command -v zsh >/dev/null 2>&1 || { echo "zsh not installed"; exit 1; }
