@@ -50,7 +50,7 @@ Only files staged in full are re-staged after `make fmt`. A partially staged fil
 
 ### The zsh helpers
 
-`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), run by `make test-sh` along with a `zsh -n` syntax pass over the zsh and an `sh -n` pass over `contrib/install.sh` and `packaging/*.sh`. Same rule: no network, no node. `packaging/install.command` is covered by the same `sh -n` pass. `packaging/windows.nsi` and `packaging/path.ps1` have no syntax check of their own — `make release` compiles the one and the Windows installer exercises the other.
+`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), along with `packaging/test`, run by `make test-sh` with a `zsh -n` syntax pass over the zsh and an `sh -n` pass over `contrib/install.sh` and `packaging/*.sh`. Same rule: no network, no node. `packaging/install.command` is covered by the same `sh -n` pass. `packaging/windows.nsi` and `packaging/path.ps1` have no syntax check of their own — `make release` compiles the one and the Windows installer exercises the other.
 
 bats runs in bash and cannot call a zsh function directly, so `contrib/test/` has a seam. `contrib/test/harness.zsh` sources the contrib script under a chosen `$OSTYPE` and evals a zsh snippet piped in on stdin; the bats side wraps it in `zsh_run`. Write the snippet as a **quoted** heredoc, so it reaches zsh byte for byte:
 
@@ -134,7 +134,20 @@ Break one of these and the program is subtly wrong, not obviously broken.
 
 `.github/workflows/ci.yml` runs `make check` and `make build` on every push and pull request, publishes the coverage table to the run summary, and runs `make vuln` in a separate job (also weekly, so advisories published after the last commit are still caught).
 
-Pushing a `v*` tag runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`): it builds the same matrix, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree: pick the tag, push it, done.
+**Releases tag themselves.** A push to `main` whose commits since the last tag ask for one gets tagged by the `tag` job, right after `check` goes green — so no tag ever points at a commit CI rejected. `packaging/next-version.sh` reads the bump out of the conventional commits:
+
+| in the log since the last tag | next version |
+|---|---|
+| `type!:` in a subject, or a `BREAKING CHANGE:` footer | major |
+| `feat:` | minor |
+| `fix:`, `perf:` | patch |
+| anything else — `docs`, `test`, `chore`, `ci`, `style`, `refactor` | no release |
+
+The highest bump in the range wins. The first tag is `v1.0.0`, since there is no earlier one to bump. Only subjects are matched for the type prefix, so a commit body that quotes `feat:` does not cut a release; `packaging/test/version.bats` covers each rule.
+
+The `release` job then runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) on that tag: it builds the matrix, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree.
+
+It runs in the same workflow run as the tag, not on the tag push, because a tag pushed with `GITHUB_TOKEN` deliberately does not start a workflow. Pushing a `v*` tag by hand still works: the script sees HEAD already tagged, reports it with `push=false` and the release goes ahead unchanged.
 
 Each tag produces two things per platform: a plain archive carrying `contrib/install.sh`, and the platform's own installer. All of them ship the same payload — executable, zsh service helper for that platform, the configuration template, README, service docs, license.
 

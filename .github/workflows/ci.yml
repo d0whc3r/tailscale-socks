@@ -58,27 +58,67 @@ jobs:
           cache: true
       - run: make vuln
 
-  # Tag push only: GoReleaser builds the matrix in .goreleaser.yaml, writes
-  # SHA256SUMS.txt and publishes the release with notes grouped by conventional
-  # commit type. Gated on `check`, not `vuln`: govulncheck needs the network and
-  # must not block a tag.
+  # The conventional commits since the last tag decide the next version:
+  # breaking change major, feat minor, fix and perf patch, anything else no
+  # release at all. Tagging here rather than in a hook means no tag ever points
+  # at a commit `check` rejected. Gated on `check`, not `vuln`: govulncheck
+  # needs the network and must not block a release.
+  #
+  # A tag pushed by hand comes out of the script as push=false and goes
+  # straight to `release`, so the manual path still works.
+  tag:
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Two pushes to main in a row would otherwise race to create the same tag.
+    concurrency:
+      group: tag
+      cancel-in-progress: false
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      # Full history: the bump is read from the log since the last tag.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: next
+        run: packaging/next-version.sh >> "$GITHUB_OUTPUT"
+      - name: create tag
+        if: steps.next.outputs.push == 'true'
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+  # GoReleaser builds the matrix in .goreleaser.yaml, writes SHA256SUMS.txt and
+  # publishes the release with notes grouped by conventional commit type. It
+  # runs in the same workflow run as the tag rather than on the tag push:
+  # GITHUB_TOKEN deliberately does not trigger a workflow, so a tag created
+  # above would otherwise never start one.
   #
   # Every installer is cross-built from here: nfpm is pure Go, makensis and
   # xorriso are apt packages. Nothing in the matrix needs a macOS runner —
   # that is why the disk image is an ISO 9660 built by xorriso and not a .pkg,
   # which only Xcode's pkgbuild can produce.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: check
+    if: needs.tag.outputs.tag != ''
+    needs: tag
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      # Full history: GoReleaser reads the previous tag to build the changelog,
-      # and the version in the binary comes from the tag via ReadBuildInfo.
+      # The tag, not the branch: the version in the binary comes from it via
+      # ReadBuildInfo, and GoReleaser refuses to release an untagged HEAD. Full
+      # history because the changelog reads back to the previous tag.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ needs.tag.outputs.tag }}
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

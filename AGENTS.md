@@ -51,7 +51,7 @@ The test: every changed line traces directly to the request.
 
 ```sh
 make check     # lint + go test -race ./... + test-sh
-make test-sh   # zsh -n over contrib/ + the bats suite in contrib/test
+make test-sh   # zsh -n over contrib/ + the bats suites in contrib/test and packaging/test
 make build     # host binary; OS=all ARCH=all for the full matrix
 make cover     # per-function statement coverage; cover-html opens a browser
 make vuln      # govulncheck; needs the network, so it is not part of check

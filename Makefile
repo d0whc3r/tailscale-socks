@@ -114,7 +114,7 @@ test-sh:
 		{ echo "bats not installed: brew install bats-core"; exit 1; }
 	@for f in $(ZSHFILES); do zsh -n "$$f" || exit 1; done
 	@for f in $(SHFILES); do sh -n "$$f" || exit 1; done
-	bats --print-output-on-failure contrib/test
+	bats --print-output-on-failure contrib/test packaging/test
 
 check: lint test test-sh
 
