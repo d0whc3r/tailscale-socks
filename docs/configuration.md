@@ -31,6 +31,18 @@ Keep these files at `0600`: they can hold `TS_AUTHKEY`. The program warns when
 one is readable by other users. Missing files are skipped; loaded ones are
 logged.
 
+## Keeping it up to date
+
+`tailscale-socks upgrade` fetches the latest release from GitHub, checks it
+against `SHA256SUMS.txt` and replaces three things in place: this executable,
+the zsh helpers under `~/.local/share/tailscale-socks`, and the settings
+template, which it writes to `~/.tailscale/.env.example`.
+
+It never writes `~/.tailscale/.env`. That file is yours and may hold
+`TS_AUTHKEY`; when a release adds a setting, the new template beside it is
+where you can see it. `TSPROXY_SHARE_DIR` and `TSPROXY_ENV_DIR` move the last
+two, exactly as they do for `contrib/install.sh`.
+
 ## Reading the configuration back
 
 `tailscale-socks config` walks the same chain and prints what it resolved to.

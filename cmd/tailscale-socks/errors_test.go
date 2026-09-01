@@ -35,6 +35,8 @@ func TestHint(t *testing.T) {
 		{"dial failure", &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, ""},
 		{"state dir is a file", fmt.Errorf("joining tailnet: %w", &os.PathError{Op: "mkdir", Path: "/tmp/x", Err: syscall.ENOTDIR}), "--state-dir"},
 		{"state dir not writable", fmt.Errorf("joining tailnet: %w", &os.PathError{Op: "mkdir", Path: "/x", Err: syscall.EACCES}), "--state-dir"},
+		{"upgrade cannot write the binary", &upgradeWriteError{"/usr/bin/tailscale-socks", &os.PathError{Op: "rename", Path: "/usr/bin/tailscale-socks", Err: syscall.EACCES}}, "/usr/bin/tailscale-socks is not writable"},
+		{"upgrade failed for another reason", &upgradeWriteError{"/x", errors.New("disk full")}, ""},
 		{"nothing to add", errors.New("nothing to serve"), ""},
 	}
 	for _, tt := range tests {

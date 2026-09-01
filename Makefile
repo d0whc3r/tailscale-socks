@@ -66,15 +66,12 @@ run: build
 
 # Release artifacts are GoReleaser's job, so the matrix lives in one place
 # (.goreleaser.yaml): this is the local dry run, CI runs the real thing on a tag
-# push. Needs makensis for the Windows setup, which does not need a Mac either,
-# which is why CI builds every artifact on ubuntu.
+# push. Nothing in it needs a Mac, which is why CI releases from ubuntu.
 # Cross-building without GoReleaser still works: make build OS=all ARCH=all
 release:
 	@command -v goreleaser >/dev/null 2>&1 || \
 		{ echo "goreleaser not installed: brew install goreleaser"; exit 1; }
-	@command -v makensis >/dev/null 2>&1 || \
-		{ echo "makensis not installed: brew install makensis"; exit 1; }
-	goreleaser release --snapshot --clean --skip=archive
+	goreleaser release --snapshot --clean
 
 # -race because every listener runs in its own goroutine.
 test:

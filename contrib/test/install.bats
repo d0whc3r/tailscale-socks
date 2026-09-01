@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 #
-# The macOS and Linux installer. It fetches the release into the user's home
-# and does nothing else: it must never run the binary, which would join a
-# tailnet, or install a service, which belongs to ts_install after the user
-# has sourced the helper. TSPROXY_BASE_URL points curl at a fixture directory,
-# so the suite stays off the network.
+# The release installer. It unpacks an archive into the user's home and does
+# nothing else: it must never run the binary, which would join a tailnet, or
+# install a service, which belongs to ts_install after the user has sourced
+# the helper. TSPROXY_BASE_URL points curl at a fixture directory, so the
+# suite stays off the network.
 
 load helpers
 
@@ -19,46 +19,67 @@ setup() {
   make_assets
 }
 
-# Both platforms every time, so a test that picks the wrong one installs the
-# other fixture instead of failing on a missing file.
+# The payload GoReleaser puts in every archive: the executable, all three zsh
+# backends and the configuration template. Built for both formats every time,
+# so a test that picks the wrong archive unpacks the other one instead of
+# failing on a missing file.
 make_assets() {
-  mkdir -p "$assets"
-  printf '#!/bin/sh\n# darwin fixture\nexit 42\n' > "$assets/tailscale-socks-darwin-universal"
-  printf '#!/bin/sh\n# linux fixture\nexit 42\n' > "$assets/tailscale-socks-linux-amd64"
-  cp "$TS_TEST_DIR/../tailscale-socks.zsh" "$assets/tailscale-socks.zsh"
-  printf '# darwin backend fixture\n' > "$assets/tailscale-socks-darwin.zsh"
-  printf '# linux backend fixture\n' > "$assets/tailscale-socks-linux.zsh"
-  printf '# environment fixture\n' > "$assets/tailscale-socks.env.example"
+  local stage="$BATS_TEST_TMPDIR/stage"
+  mkdir -p "$assets" "$stage/contrib/platform"
+  printf '#!/bin/sh\n# binary fixture\nexit 42\n' > "$stage/tailscale-socks"
+  printf '#!/bin/sh\n# exe fixture\nexit 42\n' > "$stage/tailscale-socks.exe"
+  cp "$TS_TEST_DIR/../tailscale-socks.zsh" "$stage/contrib/tailscale-socks.zsh"
+  local os
+  for os in darwin linux windows; do
+    printf '# %s backend fixture\n' "$os" > "$stage/contrib/platform/$os.zsh"
+  done
+  printf '# environment fixture\n' > "$stage/.env.example"
+
+  tar -czf "$assets/tailscale-socks-darwin-universal.tar.gz" -C "$stage" .
+  tar -czf "$assets/tailscale-socks-linux-amd64.tar.gz" -C "$stage" .
+  if command -v zip > /dev/null 2>&1; then
+    (cd "$stage" && zip -qr "$assets/tailscale-socks-windows-amd64.zip" .)
+  fi
 }
 
 # The runner is whatever CI happens to be, so every test says which kernel and
-# machine the installer sees. `uname -m` only matters on Linux.
+# machine the installer sees. `uname -m` only matters off macOS.
 stub_uname() {
   stub_exe uname "case \"\${1-}\" in -m) printf '${2:-x86_64}\n' ;; *) printf '$1\n' ;; esac"
 }
 
-@test "installer fetches the macOS release without running the binary" {
+@test "installer unpacks the macOS archive without running the binary" {
   stub_uname Darwin
 
   run "$installer"
   [ "$status" -eq 0 ]
   [ -x "$TSPROXY_BIN_DIR/tailscale-socks" ]
-  grep -q 'darwin fixture' "$TSPROXY_BIN_DIR/tailscale-socks"
+  grep -q 'binary fixture' "$TSPROXY_BIN_DIR/tailscale-socks"
   [ -f "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh" ]
-  [ -f "$TSPROXY_SHARE_DIR/contrib/platform/darwin.zsh" ]
+  grep -q 'darwin backend' "$TSPROXY_SHARE_DIR/contrib/platform/darwin.zsh"
   [ -f "$TSPROXY_ENV_DIR/.env" ]
 }
 
-@test "installer fetches the linux release without running the binary" {
+@test "installer unpacks the linux archive" {
   stub_uname Linux x86_64
 
   run "$installer"
   [ "$status" -eq 0 ]
   [ -x "$TSPROXY_BIN_DIR/tailscale-socks" ]
-  grep -q 'linux fixture' "$TSPROXY_BIN_DIR/tailscale-socks"
-  [ -f "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh" ]
-  [ -f "$TSPROXY_SHARE_DIR/contrib/platform/linux.zsh" ]
-  [ -f "$TSPROXY_ENV_DIR/.env" ]
+  grep -q 'linux backend' "$TSPROXY_SHARE_DIR/contrib/platform/linux.zsh"
+  [ ! -e "$TSPROXY_SHARE_DIR/contrib/platform/darwin.zsh" ]
+}
+
+@test "installer unpacks the windows zip into the default bin directory" {
+  command -v zip > /dev/null 2>&1 || skip "zip is needed to build the fixture"
+  stub_uname MINGW64_NT-10.0-22631 x86_64
+  unset TSPROXY_BIN_DIR
+
+  run "$installer"
+  [ "$status" -eq 0 ]
+  [ -x "$HOME/bin/tailscale-socks.exe" ]
+  grep -q 'exe fixture' "$HOME/bin/tailscale-socks.exe"
+  grep -q 'windows backend' "$TSPROXY_SHARE_DIR/contrib/platform/windows.zsh"
 }
 
 @test "installer keeps an existing environment file" {
@@ -71,21 +92,13 @@ stub_uname() {
   [ "$(cat "$TSPROXY_ENV_DIR/.env")" = "TS_AUTHKEY=secret" ]
 }
 
-@test "installer fails on a missing asset" {
+@test "installer fails when the release has no such archive" {
   stub_uname Darwin
-  rm "$assets/tailscale-socks-darwin.zsh"
+  rm "$assets/tailscale-socks-darwin-universal.tar.gz"
 
   run "$installer"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"cannot install contrib/platform/darwin.zsh"* ]]
-}
-
-@test "installer sends Windows to the setup executable" {
-  stub_uname MINGW64_NT-10.0-22631
-
-  run "$installer"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"run the setup .exe"* ]]
+  [[ "$output" == *"cannot download tailscale-socks-darwin-universal.tar.gz"* ]]
   [ ! -e "$TSPROXY_BIN_DIR/tailscale-socks" ]
 }
 

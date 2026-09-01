@@ -1,5 +1,5 @@
 # Release pipeline for a tag push. One matrix, one place: CI runs
-# `goreleaser release --skip=archive`, `make release` runs the same as a snapshot.
+# `goreleaser release`, `make release` runs the same as a snapshot.
 version: 2
 
 builds:
@@ -12,16 +12,8 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: [-s -w]
-    # Only what the release ships: a .deb and an .exe, plus the bare binaries
-    # `contrib/install.sh` fetches. The two darwin targets exist solely to be
-    # lipo'd into the universal one.
+    # The two darwin targets exist only to be lipo'd into the universal one.
     targets: [darwin_amd64, darwin_arm64, linux_amd64, windows_amd64]
-    # The hook fires once per target and no-ops on everything but Windows;
-    # running it here rather than after the release keeps the installer inside
-    # the checksum file.
-    hooks:
-      post:
-        - ./packaging/windows-nsis.sh {{ .Os }} {{ .Arch }} {{ .Path }} {{ .Version }}
 
 # One binary for every Mac, instead of one per architecture. `replace: true`
 # drops the per-architecture darwin builds: nothing else consumes them.
@@ -30,63 +22,36 @@ universal_binaries:
     ids: [tailscale-socks]
     replace: true
 
-# No tar.gz, no zip: the bare binaries below are published as they are. An
-# empty `archives` is not enough — GoReleaser fills in its tar.gz default — so
-# the whole step is skipped with `--skip=archive`, in the Makefile and in the
-# release workflow alike.
-
-# The release, in full: a .deb on Linux and an NSIS setup on Windows, each
-# carrying the same payload — binary, zsh helpers, configuration template,
-# docs — put where that platform expects it. macOS has no installer format
-# that works unsigned, so it gets the pieces as plain assets and
-# `contrib/install.sh` curls them into place.
-nfpms:
-  - id: deb
-    ids: [tailscale-socks]
-    package_name: tailscale-socks
-    formats: [deb]
-    file_name_template: '{{ .PackageName }}-{{ .Version }}-{{ .Arch }}'
-    vendor: d0whc3r
-    maintainer: d0whc3r <1378986+d0whc3r@users.noreply.github.com>
-    homepage: https://github.com/d0whc3r/tailscale-socks
-    license: MIT
-    section: net
-    description: |-
-      Reach your tailnet from any local app, without installing Tailscale.
-      A userspace Tailscale node exposing SOCKS5, HTTP and DNS front doors.
-    bindir: /usr/bin
-    contents:
+# One archive per platform, and nothing else: no .deb, no installer. It is
+# what `contrib/install.sh` unpacks and what `tailscale-socks upgrade`
+# replaces itself from, so the name carries no version and
+# `releases/latest/download/<name>` is a stable URL.
+archives:
+  - id: tailscale-socks
+    formats: [tar.gz]
+    # zip on Windows, where Explorer opens one and tar.gz needs a terminal.
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # No architecture for darwin: that binary is universal.
+    name_template: '{{ .ProjectName }}-{{ .Os }}-{{ if eq .Arch "all" }}universal{{ else }}{{ .Arch }}{{ end }}'
+    # The same payload everywhere, including all three zsh backends: six
+    # kilobytes, and it keeps every archive the same shape.
+    files:
+      # A literal src takes the full destination path; only a glob treats
+      # dst as a directory.
       - src: contrib/tailscale-socks.zsh
-        dst: /usr/share/tailscale-socks/contrib/tailscale-socks.zsh
-      - src: contrib/platform/linux.zsh
-        dst: /usr/share/tailscale-socks/contrib/platform/linux.zsh
-      # Shipped already named .env, so it is a straight copy to
-      # ~/.tailscale/.env. Not under /etc and not a dpkg conffile: the binary
-      # reads the environment, a .env beside itself and ~/.tailscale/.env, and
-      # never /etc, so tracking it there would only promise something false.
-      - src: .env.example
-        dst: /usr/share/tailscale-socks/.env
-      - src: README.md
-        dst: /usr/share/doc/tailscale-socks/README.md
-      # Under docs/, not straight into the doc directory: the index page is
-      # docs/README.md and would collide with the project README above.
+        dst: contrib/tailscale-socks.zsh
+      - src: contrib/platform/*.zsh
+        dst: contrib/platform
+      - .env.example
+      - README.md
+      - LICENSE
       - src: docs/*.md
-        dst: /usr/share/doc/tailscale-socks/docs/
-      - src: LICENSE
-        dst: /usr/share/doc/tailscale-socks/copyright
+        dst: docs
 
 checksum:
   name_template: SHA256SUMS.txt
-  # With the archive step skipped, the bare binaries are not release artifacts
-  # and the NSIS setup is written by a hook, so none of the three is tracked;
-  # without this they would ship unchecksummed. Same globs and names as
-  # `release.extra_files` below, or the sums would not match the assets.
-  extra_files:
-    - glob: dist/universal_darwin_all/tailscale-socks
-      name_template: tailscale-socks-darwin-universal
-    - glob: dist/tailscale-socks_linux_amd64*/tailscale-socks
-      name_template: tailscale-socks-linux-amd64
-    - glob: dist/tailscale-socks-setup-windows-*.exe
 
 # Release notes grouped by conventional commit type. Anything that is not
 # feat/fix/perf lands in Other; docs, tests and chores are dropped.
@@ -120,20 +85,3 @@ release:
   github:
     owner: d0whc3r
     name: tailscale-socks
-  # What `contrib/install.sh` fetches: a binary per platform plus the files
-  # the .deb and the Windows setup carry inside them. Names are unversioned
-  # and prefixed, so `releases/latest/download/<name>` is a stable URL and the
-  # assets are still telling apart on the release page.
-  extra_files:
-    - glob: dist/universal_darwin_all/tailscale-socks
-      name_template: tailscale-socks-darwin-universal
-    - glob: dist/tailscale-socks_linux_amd64*/tailscale-socks
-      name_template: tailscale-socks-linux-amd64
-    - glob: dist/tailscale-socks-setup-windows-*.exe
-    - glob: contrib/tailscale-socks.zsh
-    - glob: contrib/platform/darwin.zsh
-      name_template: tailscale-socks-darwin.zsh
-    - glob: contrib/platform/linux.zsh
-      name_template: tailscale-socks-linux.zsh
-    - glob: .env.example
-      name_template: tailscale-socks.env.example

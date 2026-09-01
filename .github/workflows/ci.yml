@@ -105,10 +105,10 @@ jobs:
   # hangs off the `tag` job rather than off a tag push, because a tag pushed
   # with GITHUB_TOKEN deliberately does not start a workflow.
   #
-  # Everything is cross-built from here: nfpm is pure Go and makensis is an apt
-  # package. Nothing in the matrix needs a macOS runner — that is why macOS
-  # ships a bare universal binary and not a .pkg, which only Xcode's pkgbuild
-  # can produce and which Gatekeeper would block unsigned anyway.
+  # Nothing in the matrix needs a macOS runner: the release is archives, and
+  # the Go toolchain cross-builds every target. That is also why macOS ships an
+  # archive and not a .pkg — only Xcode's pkgbuild can produce one, and
+  # Gatekeeper would block it unsigned anyway.
   release:
     if: needs.tag.outputs.tag != ''
     needs: tag
@@ -127,10 +127,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: installer toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis
       - uses: goreleaser/goreleaser-action@v7
         with:
-          args: release --clean --skip=archive
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}

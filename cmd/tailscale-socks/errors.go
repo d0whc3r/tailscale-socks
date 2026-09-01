@@ -38,8 +38,18 @@ func hint(err error) string {
 		return ""
 	}
 
-	// The state directory is the only path this program creates, so a file
-	// error that got this far is about that directory.
+	// An upgrade names the file it could not replace, so the state directory
+	// below is the wrong advice for it.
+	var uw *upgradeWriteError
+	if errors.As(err, &uw) {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Sprintf("%s is not writable by this user; install it under your home with contrib/install.sh", uw.path)
+		}
+		return ""
+	}
+
+	// The state directory is the only other path this program creates, so a
+	// file error that got this far is about that directory.
 	if errors.Is(err, syscall.ENOTDIR) || errors.Is(err, os.ErrPermission) {
 		return "the state directory must be a writable directory; check --state-dir (TSPROXY_STATE_DIR)"
 	}

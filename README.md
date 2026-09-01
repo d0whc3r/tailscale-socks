@@ -14,51 +14,44 @@ Outbound traffic can leave through an **exit node**, and **subnet routers** are 
 
 ## 1. Install
 
-On macOS and Linux, one command — it installs into `~/.local/bin` and `~/.local/share`, no administrator:
+One command, no administrator. It unpacks the release into your home — `~/.local/bin` and `~/.local/share`, or `~/bin` on Windows:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/d0whc3r/tailscale-socks/main/contrib/install.sh | sh
 ```
 
-Or download a package from the [latest release](https://github.com/d0whc3r/tailscale-socks/releases/latest) and run it:
+On Windows that needs a zsh — MSYS2, Cygwin or Git Bash — which the shell helpers need anyway. The release itself is one archive per platform, and nothing else:
 
-| Platform | Download | Install |
-|---|---|---|
-| Linux | `tailscale-socks-<version>-amd64.deb` | `sudo apt install ./tailscale-socks-<version>-amd64.deb` |
-| Windows | `tailscale-socks-setup-windows-amd64.exe` | run it — per-user, no administrator |
+| Platform | Archive |
+|---|---|
+| macOS | `tailscale-socks-darwin-universal.tar.gz` |
+| Linux | `tailscale-socks-linux-amd64.tar.gz` |
+| Windows | `tailscale-socks-windows-amd64.zip` |
 
-Windows has no `curl` line: run the setup. Linux is x86-64 either way; the macOS binary is universal and runs on Apple silicon and Intel alike. On any other architecture, build from source: see [CONTRIBUTING.md](CONTRIBUTING.md). Every file on the release page is listed in `SHA256SUMS.txt`:
+Linux and Windows are x86-64; the macOS binary is universal and runs on Apple silicon and Intel alike. On any other architecture, build from source: see [CONTRIBUTING.md](CONTRIBUTING.md). Every archive is listed in `SHA256SUMS.txt`:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS.txt   # shasum -a 256 -c on macOS
 ```
 
-macOS has no downloadable installer for one reason: nothing here is signed with a Developer ID, and a browser download is quarantined — Gatekeeper then kills the binary on sight, with `Killed: 9` and no explanation. `curl` sets no quarantine attribute, so what it writes just runs.
+There is no `.pkg`, `.deb` or setup `.exe`, for one reason: nothing here is signed with a Developer ID, and on macOS a browser download is quarantined — Gatekeeper then kills the binary on sight, with `Killed: 9` and no explanation. `curl` sets no quarantine attribute, so what it writes just runs.
+
+Later, update in place:
+
+```sh
+tailscale-socks upgrade
+```
 
 ## 2. Load the shell helpers
 
-Add the line for your install to `~/.zshrc`:
+Add this to `~/.zshrc`, the same line on all three platforms:
 
 ```sh
-# macOS and Linux, installed with curl
 source "$HOME/.local/share/tailscale-socks/contrib/tailscale-socks.zsh"
-
-# Linux .deb
-source /usr/share/tailscale-socks/contrib/tailscale-socks.zsh
-
-# Windows, from zsh under MSYS2, Cygwin or Git Bash
-source "$(cygpath -u "$LOCALAPPDATA")/Programs/tailscale-socks/contrib/tailscale-socks.zsh"
 ```
+ The installer already wrote `~/.tailscale/.env` for you, with every line commented out, so an untouched copy keeps the defaults — edit it when you want to change one.
 
-Then make sure `~/.tailscale/.env` exists. The `curl` installer writes it for you; the `.deb` does not, so copy it — every line in it is commented out, so an untouched copy keeps the defaults:
-
-```sh
-mkdir -p ~/.tailscale
-cp -n /usr/share/tailscale-socks/.env ~/.tailscale/.env
-chmod 600 ~/.tailscale/.env
-```
-
-On Windows the `.env` lands next to the executable, a path the binary reads on its own: edit it in place, nothing to copy.
+`tailscale-socks upgrade` refreshes that helper along with the binary, and writes the release's template to `~/.tailscale/.env.example`. Your `~/.tailscale/.env` is never touched: it is yours, and it may hold `TS_AUTHKEY`.
 
 ## 3. Start it
 
@@ -95,6 +88,7 @@ Use `socks5h://` (curl: `--socks5-hostname`), **not** `socks5://`. Names must be
 tailscale-socks                 # run the proxies (the default command)
 tailscale-socks status          # join, print what this node can reach, exit
 tailscale-socks config          # print the resolved settings; no tailnet, no login
+tailscale-socks upgrade         # replace the binary and the helpers with the latest release
 tailscale-socks --help          # also: run --help
 ```
 

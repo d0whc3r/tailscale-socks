@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs tailscale-socks on macOS and Linux from the latest release:
+# Installs tailscale-socks from the latest release:
 #
 #   curl -fsSL https://raw.githubusercontent.com/d0whc3r/tailscale-socks/main/contrib/install.sh | sh
 #
@@ -10,11 +10,12 @@
 #
 # It copies files only: ts_install remains the explicit step that writes and
 # starts a service, and the binary is never run, which would join a tailnet.
+# Once installed, `tailscale-socks upgrade` does the same job from Go.
 
 set -eu
 
 # Overridden by the test suite, which points it at a directory of fixtures
-# through file://. Unversioned asset names, so this URL never has to change.
+# through file://. Unversioned archive names, so this URL never has to change.
 TSPROXY_BASE_URL=${TSPROXY_BASE_URL:-https://github.com/d0whc3r/tailscale-socks/releases/latest/download}
 
 die() {
@@ -22,72 +23,100 @@ die() {
   exit 1
 }
 
-# Downloads beside the destination and renames, so a transfer that dies
-# halfway leaves no partial binary behind.
-fetch() {
-  url=$1
+install_file() {
+  src=$1
   dst=$2
   mode=$3
+  [ -f "$src" ] || return 1
   tmp=$(mktemp "$dst.XXXXXX") || return 1
-  trap 'rm -f "$tmp"' EXIT
-  curl -fsSL "$url" -o "$tmp" || return 1
-  chmod "$mode" "$tmp" || return 1
-  mv -f "$tmp" "$dst" || return 1
-  trap - EXIT
+  cp "$src" "$tmp" && chmod "$mode" "$tmp" && mv -f "$tmp" "$dst" && return 0
+  rm -f "$tmp"
+  return 1
 }
 
 kernel=$(uname -s) || die 'cannot identify the operating system'
 case $kernel in
   Darwin)
-    # One universal binary for Apple silicon and Intel alike, so no
+    # One universal binary for Apple silicon and Intel alike, so there is no
     # architecture to check here.
     os=darwin
-    binary_asset=tailscale-socks-darwin-universal
+    bin=tailscale-socks
+    archive=tailscale-socks-darwin-universal.tar.gz
     ;;
   Linux)
     os=linux
-    binary_asset=tailscale-socks-linux-amd64
-    arch=$(uname -m) || die 'cannot identify the architecture'
-    case $arch in
-      x86_64 | amd64) ;;
-      *) die "no release binary for $arch: build from source, see CONTRIBUTING.md" ;;
-    esac
+    bin=tailscale-socks
+    archive=tailscale-socks-linux-amd64.tar.gz
     ;;
   MINGW* | MSYS* | CYGWIN*)
-    die 'no installer for Windows here: run the setup .exe from the release page'
+    os=windows
+    bin=tailscale-socks.exe
+    archive=tailscale-socks-windows-amd64.zip
     ;;
-  *) die "no release binary for $kernel: build from source, see CONTRIBUTING.md" ;;
+  *) die "no release for $kernel: build from source, see CONTRIBUTING.md" ;;
 esac
 
-TSPROXY_BIN_DIR=${TSPROXY_BIN_DIR:-$HOME/.local/bin}
+if [ "$os" != darwin ]; then
+  arch=$(uname -m) || die 'cannot identify the architecture'
+  case $arch in
+    x86_64 | amd64) ;;
+    *) die "no release binary for $arch: build from source, see CONTRIBUTING.md" ;;
+  esac
+fi
+
+if [ -z "${TSPROXY_BIN_DIR:-}" ]; then
+  if [ "$os" = windows ]; then
+    TSPROXY_BIN_DIR=$HOME/bin
+  else
+    TSPROXY_BIN_DIR=$HOME/.local/bin
+  fi
+fi
 TSPROXY_SHARE_DIR=${TSPROXY_SHARE_DIR:-$HOME/.local/share/tailscale-socks}
 TSPROXY_ENV_DIR=${TSPROXY_ENV_DIR:-$HOME/.tailscale}
 env_file=$TSPROXY_ENV_DIR/.env
 
+stage=$(mktemp -d) || die 'cannot create a temporary directory'
+trap 'rm -rf "$stage"' EXIT
+
+curl -fsSL "$TSPROXY_BASE_URL/$archive" -o "$stage/$archive" ||
+  die "cannot download $archive"
+
+case $archive in
+  *.zip)
+    # bsdtar reads a zip and ships with Windows as tar.exe; GNU tar does not,
+    # which is why unzip comes first.
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -q "$stage/$archive" -d "$stage" || die "cannot unpack $archive"
+    else
+      tar -xf "$stage/$archive" -C "$stage" || die "cannot unpack $archive: install unzip"
+    fi
+    ;;
+  *) tar -xzf "$stage/$archive" -C "$stage" || die "cannot unpack $archive" ;;
+esac
+
 mkdir -p "$TSPROXY_BIN_DIR" "$TSPROXY_SHARE_DIR/contrib/platform" "$TSPROXY_ENV_DIR" ||
   die 'cannot create the installation directories'
 
-fetch "$TSPROXY_BASE_URL/$binary_asset" "$TSPROXY_BIN_DIR/tailscale-socks" 0755 ||
-  die 'cannot install tailscale-socks'
+install_file "$stage/$bin" "$TSPROXY_BIN_DIR/$bin" 0755 || die "cannot install $bin"
 if [ "$os" = darwin ]; then
   # Nothing curl writes is quarantined, so this only matters for a binary that
   # reached the machine some other way — and there it is the difference between
   # a working install and one Gatekeeper kills on sight.
-  xattr -d com.apple.quarantine "$TSPROXY_BIN_DIR/tailscale-socks" 2>/dev/null || true
+  xattr -d com.apple.quarantine "$TSPROXY_BIN_DIR/$bin" 2>/dev/null || true
 fi
 
-fetch "$TSPROXY_BASE_URL/tailscale-socks.zsh" \
+install_file "$stage/contrib/tailscale-socks.zsh" \
   "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh" 0644 ||
   die 'cannot install contrib/tailscale-socks.zsh'
-fetch "$TSPROXY_BASE_URL/tailscale-socks-$os.zsh" \
+install_file "$stage/contrib/platform/$os.zsh" \
   "$TSPROXY_SHARE_DIR/contrib/platform/$os.zsh" 0644 ||
   die "cannot install contrib/platform/$os.zsh"
 if [ ! -e "$env_file" ]; then
-  fetch "$TSPROXY_BASE_URL/tailscale-socks.env.example" "$env_file" 0600 ||
+  install_file "$stage/.env.example" "$env_file" 0600 ||
     die 'cannot create the initial environment file'
 fi
 
-printf 'binary:   %s\n' "$TSPROXY_BIN_DIR/tailscale-socks"
+printf 'binary:   %s\n' "$TSPROXY_BIN_DIR/$bin"
 printf 'helpers:  %s\n' "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh"
 printf 'config:   %s\n' "$env_file"
 printf 'source:   %s\n' "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh"

@@ -18,6 +18,7 @@ type cli struct {
 	Run     runCmd           `cmd:"" default:"withargs" help:"Run the proxies (default command)."`
 	Status  statusCmd        `cmd:"" help:"Join the tailnet and print what this node can reach."`
 	Config  configCmd        `cmd:"" help:"Print the resolved configuration, without joining the tailnet."`
+	Upgrade upgradeCmd       `cmd:"" help:"Replace this binary and the helper files with the latest release."`
 	Version kong.VersionFlag `short:"V" env:"-" help:"Print the version and exit."`
 }
 

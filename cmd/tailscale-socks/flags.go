@@ -43,6 +43,9 @@ Examples:
   tailscale-socks config
   tailscale-socks config socks5
 
+  # Replace this binary and the helper files with the latest release.
+  tailscale-socks upgrade
+
   curl --socks5-hostname 127.0.0.1:1080 http://peer.tailnet.ts.net/
   curl --proxy http://127.0.0.1:8080    http://peer.tailnet.ts.net/
   dig @127.0.0.1 -p 5354 peer.tailnet.ts.net`
