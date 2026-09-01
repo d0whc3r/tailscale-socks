@@ -59,7 +59,10 @@ ZSH
   [ "$status" -eq 0 ]
   [[ "$output" == *"<string>/opt/R&amp;D/tailscale-socks</string>"* ]]
   [[ "$output" != *"/opt/R&D/"* ]]
-  command -v plutil >/dev/null 2>&1 && plutil -lint "$HOME/Library/LaunchAgents/tailscale-socks.plist"
+  if command -v plutil >/dev/null; then
+    run plutil -lint "$HOME/Library/LaunchAgents/tailscale-socks.plist"
+    [ "$status" -eq 0 ]
+  fi
 }
 
 @test "darwin reloads the agent instead of stacking a second one" {
