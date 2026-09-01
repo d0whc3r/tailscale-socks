@@ -1,9 +1,12 @@
 name: ci
 
 on:
+  # Branch only. A tag never starts a run: the one the `tag` job creates is
+  # pushed with GITHUB_TOKEN, which deliberately triggers nothing, and letting
+  # a hand-pushed tag in as well would mean two runs racing to release the
+  # same commit.
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   # govulncheck has to catch advisories published after the last commit.
   schedule:
@@ -64,8 +67,10 @@ jobs:
   # at a commit `check` rejected. Gated on `check`, not `vuln`: govulncheck
   # needs the network and must not block a release.
   #
-  # A tag pushed by hand comes out of the script as push=false and goes
-  # straight to `release`, so the manual path still works.
+  # push=false means HEAD already carries the tag, so `release` runs and
+  # nothing is created. That is what makes re-running a failed release work:
+  # the second pass finds the tag from the first and does not try to push it
+  # again.
   tag:
     if: github.event_name == 'push'
     needs: check
@@ -97,9 +102,8 @@ jobs:
 
   # GoReleaser builds the matrix in .goreleaser.yaml, writes SHA256SUMS.txt and
   # publishes the release with notes grouped by conventional commit type. It
-  # runs in the same workflow run as the tag rather than on the tag push:
-  # GITHUB_TOKEN deliberately does not trigger a workflow, so a tag created
-  # above would otherwise never start one.
+  # hangs off the `tag` job rather than off a tag push, because a tag pushed
+  # with GITHUB_TOKEN deliberately does not start a workflow.
   #
   # Every installer is cross-built from here: nfpm is pure Go, makensis and
   # xorriso are apt packages. Nothing in the matrix needs a macOS runner —

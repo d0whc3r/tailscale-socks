@@ -147,7 +147,7 @@ The highest bump in the range wins. The first tag is `v1.0.0`, since there is no
 
 The `release` job then runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) on that tag: it builds the matrix, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree.
 
-It runs in the same workflow run as the tag, not on the tag push, because a tag pushed with `GITHUB_TOKEN` deliberately does not start a workflow. Pushing a `v*` tag by hand still works: the script sees HEAD already tagged, reports it with `push=false` and the release goes ahead unchanged.
+It hangs off the `tag` job rather than off a tag push, because a tag pushed with `GITHUB_TOKEN` deliberately does not start a workflow. `ci.yml` therefore listens to `main` only — a tag pushed by hand starts nothing, and pushing one is not how a release is cut any more. When the script finds HEAD already tagged it reports `push=false`, which is what lets a failed `release` be re-run without a second tag.
 
 Each tag produces two things per platform: a plain archive carrying `contrib/install.sh`, and the platform's own installer. All of them ship the same payload — executable, zsh service helper for that platform, the configuration template, README, service docs, license.
 
