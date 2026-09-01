@@ -1,11 +1,8 @@
 # AGENTS.md
 
-Behavioral rules for coding agents working on **tailscale-socks**: a userspace
-Tailscale node (`tsnet`) exposing a tailnet through local SOCKS5, HTTP and DNS
-front doors. Go, ~1300 lines, no server, no UI.
+Behavioral rules for coding agents working on **tailscale-socks**: a userspace Tailscale node (`tsnet`) exposing a tailnet through local SOCKS5, HTTP and DNS front doors. Go, ~1300 lines, no server, no UI.
 
-Project facts — flags, defaults, layout, how to run it — live in the README and
-`.env.example`. Read them before your first change.
+Project facts — flags, defaults, layout, how to run it — live in the README and `.env.example`. Read them before your first change.
 
 ## 1. Think Before Coding
 
@@ -28,13 +25,9 @@ Project facts — flags, defaults, layout, how to run it — live in the README 
 - No error handling for impossible states.
 - 200 lines that could be 50 → rewrite it.
 
-Reuse before writing, in this order: something already in this repo → the
-standard library (`net`, `net/http`, `net/netip`, `context`) → what `tsnet` and
-`tailscale.com/*` already do → a dependency that is already in `go.mod`. A new
-direct dependency needs a reason stated up front.
+Reuse before writing, in this order: something already in this repo → the standard library (`net`, `net/http`, `net/netip`, `context`) → what `tsnet` and `tailscale.com/*` already do → a dependency that is already in `go.mod`. A new direct dependency needs a reason stated up front.
 
-`net/netip` over `net.IP`. `net/http` over a proxy library. `dnsmessage` over a
-hand-rolled parser.
+`net/netip` over `net.IP`. `net/http` over a proxy library. `dnsmessage` over a hand-rolled parser.
 
 The test: would a senior Go engineer call this overcomplicated? Then simplify.
 
@@ -48,9 +41,7 @@ The test: would a senior Go engineer call this overcomplicated? Then simplify.
 - Remove the imports and variables YOUR change orphaned; leave pre-existing dead code alone.
 - Never run `go mod tidy` or bump `tailscale.com` as a side effect of an unrelated change. Dependency moves are their own commit.
 
-Fix the root cause, not the symptom: one guard in `Node.DialContext` beats a
-guard in each of the three servers — and patching only the reported path leaves
-the sibling callers broken.
+Fix the root cause, not the symptom: one guard in `Node.DialContext` beats a guard in each of the three servers — and patching only the reported path leaves the sibling callers broken.
 
 The test: every changed line traces directly to the request.
 
@@ -67,15 +58,9 @@ make vuln      # govulncheck; needs the network, so it is not part of check
 make outdated  # direct deps and pinned tools with a newer version; network too
 ```
 
-`make check` is the gate, and it now covers the shell too: `make test-sh`
-needs `zsh` and `bats` >= 1.5.0 (`brew install bats-core`). There is no linter
-for zsh — shellcheck rejects the dialect with SC1071 — so `zsh -n` is the
-syntax check.
+`make check` is the gate, and it now covers the shell too: `make test-sh` needs `zsh` and `bats` >= 1.5.0 (`brew install bats-core`). There is no linter for zsh — shellcheck rejects the dialect with SC1071 — so `zsh -n` is the syntax check.
 
-`goimports`, `staticcheck` and `govulncheck` are
-pinned in the `tool` block of `go.mod` and run through `go tool` — never
-install them separately, never `go run ...@latest`, never add a second linter
-config.
+`goimports`, `staticcheck` and `govulncheck` are pinned in the `tool` block of `go.mod` and run through `go tool` — never install them separately, never `go run ...@latest`, never add a second linter config.
 
 Turn the task into something verifiable:
 
@@ -83,17 +68,14 @@ Turn the task into something verifiable:
 - "Fix the bug" → reproducing test first. Watch it fail, then fix, then watch it pass.
 - "Refactor X" → `make check` green before and after.
 
-**Tests never touch the network and never bring up a node.** `tsnet.Server.Up`
-needs a real tailnet and a login; a test that calls it is broken, not slow. Test
-the pure parts instead — the pattern is already in the repo:
+**Tests never touch the network and never bring up a node.** `tsnet.Server.Up` needs a real tailnet and a login; a test that calls it is broken, not slow. Test the pure parts instead — the pattern is already in the repo:
 
 - fake the seam: `proxy.DialFunc` and `proxy.DNSBackend` are interfaces so the servers can be tested without a tailnet, and `Node.dialTS`/`Node.lookupIP` are function fields so `DialContext` can be.
 - split the pure part out of the one that needs a live node: `describe` from `Describe`, `prefsFor` from `applyPrefs`. That is where the logic worth testing lives.
 - build fixtures by hand: `testStatus()` in `internal/tsnode` fakes an `ipnstate.Status`.
 - table-driven subtests, `t.Helper()` in helpers, `t.TempDir()` for anything on disk.
 
-Anything that only proves itself on the wire gets a **manual** smoke check, run
-and reported, not a test:
+Anything that only proves itself on the wire gets a **manual** smoke check, run and reported, not a test:
 
 ```sh
 ./tailscale-socks --exit-node auto
@@ -110,9 +92,7 @@ Multi-step work → state the plan up front:
 2. [Step] → verify: [check]
 ```
 
-"Looks right" is not verification. Run the check and report the real result.
-Tests failed, `staticcheck` complained, or a step was skipped → say so, with the
-output.
+"Looks right" is not verification. Run the check and report the real result. Tests failed, `staticcheck` complained, or a step was skipped → say so, with the output.
 
 ## 5. Git & PR
 
@@ -166,5 +146,4 @@ output.
 
 ---
 
-**Working if:** smaller diffs, `make check` green on the first try more often,
-clarifying questions before implementation instead of corrections after.
+**Working if:** smaller diffs, `make check` green on the first try more often, clarifying questions before implementation instead of corrections after.

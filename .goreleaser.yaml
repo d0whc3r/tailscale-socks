@@ -22,11 +22,26 @@ builds:
       - goos: windows
         goarch: arm
 
-# Bare binaries, not tarballs: the release assets stay the same files the
-# README already tells people to download.
+# One installable per target: the executable, its platform helper, the service
+# documentation and an installer that keeps all of them together.
 archives:
-  - formats: [binary]
+  - formats: [tar.gz]
     name_template: '{{ .Binary }}-{{ .Os }}-{{ .Arch }}'
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    wrap_in_directory: true
+    files:
+      - .env.example
+      - docs/service.md
+      - src: contrib/install.sh
+        dst: install.sh
+        info:
+          mode: 0755
+      - src: contrib/tailscale-socks.zsh
+        dst: contrib/tailscale-socks.zsh
+      - src: contrib/platform/{{ .Os }}.zsh
+        dst: contrib/platform
 
 checksum:
   name_template: SHA256SUMS.txt

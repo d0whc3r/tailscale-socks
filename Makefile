@@ -99,13 +99,15 @@ lint: fmt-check vet
 # the suite runs in bats, which needs 1.5.0 or newer for `run --separate-stderr`.
 # Every service manager is stubbed, so all three backends are exercised on
 # whatever machine runs this: nothing is installed and no node is started.
-SHFILES := contrib/tailscale-socks.zsh contrib/platform/*.zsh contrib/test/*.zsh
+ZSHFILES := contrib/tailscale-socks.zsh contrib/platform/*.zsh contrib/test/*.zsh
+SHFILES := contrib/install.sh
 
 test-sh:
 	@command -v zsh >/dev/null 2>&1 || { echo "zsh not installed"; exit 1; }
 	@command -v bats >/dev/null 2>&1 || \
 		{ echo "bats not installed: brew install bats-core"; exit 1; }
-	@for f in $(SHFILES); do zsh -n "$$f" || exit 1; done
+	@for f in $(ZSHFILES); do zsh -n "$$f" || exit 1; done
+	@for f in $(SHFILES); do sh -n "$$f" || exit 1; done
 	bats --print-output-on-failure contrib/test
 
 check: lint test test-sh

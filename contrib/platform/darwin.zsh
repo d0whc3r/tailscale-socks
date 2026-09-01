@@ -11,8 +11,16 @@ _ts_svc_check() {
 
 _ts_installed() { [[ -f $TS_SOCKS_PLIST ]] }
 
+# _ts_xml escapes the three characters that would make the plist invalid XML.
+# A path is allowed to contain all of them; launchd just refuses the file.
+_ts_xml() {
+  local s=${1//&/&amp;}
+  s=${s//</&lt;}
+  print -rn -- ${s//>/&gt;}
+}
+
 _ts_write_service() {
-  local bin=$1
+  local bin=$(_ts_xml $1) log=$(_ts_xml $TS_SOCKS_LOG)
   mkdir -p ${TS_SOCKS_PLIST:h} ${TS_SOCKS_LOG:h}
   cat > $TS_SOCKS_PLIST <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -37,9 +45,9 @@ _ts_write_service() {
   <key>ThrottleInterval</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>$TS_SOCKS_LOG</string>
+  <string>$log</string>
   <key>StandardErrorPath</key>
-  <string>$TS_SOCKS_LOG</string>
+  <string>$log</string>
 </dict>
 </plist>
 PLIST

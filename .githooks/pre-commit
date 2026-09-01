@@ -42,7 +42,7 @@ if staged_match '\.go$|(^|/)go\.(mod|sum)$'; then
 	ran=1
 fi
 
-if staged_match '\.(zsh|bats|bash)$'; then
+if staged_match '\.(zsh|bats|bash|sh)$'; then
 	make test-sh
 	ran=1
 fi

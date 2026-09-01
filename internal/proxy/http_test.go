@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixedDial stands in for the tailnet dialer: every address lands on target.
@@ -123,6 +125,60 @@ func TestHTTPProxy(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A client is allowed to send its first payload right behind the CONNECT
+// request, and Go's server buffers whatever arrives with the request headers.
+// Reading the hijacked net.Conn instead of that buffer drops those bytes — a
+// TLS ClientHello, usually — and the tunnel hangs.
+func TestConnectKeepsPipelinedBytes(t *testing.T) {
+	t.Parallel()
+
+	// A bare TCP upstream: the tunnel carries whatever the client wrote, so
+	// there is no HTTP on this side.
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upstream.Close()
+
+	got := make(chan string, 1)
+	go func() {
+		conn, err := upstream.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		line, _ := bufio.NewReader(conn).ReadString('\n')
+		got <- line
+	}()
+
+	proxySrv := httptest.NewServer(NewHTTPProxy(fixedDial(upstream.Addr().String())))
+	defer proxySrv.Close()
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(proxySrv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// One write, so the request and the payload reach the server together.
+	if _, err := io.WriteString(conn, "CONNECT peer.tailnet.ts.net:443 HTTP/1.1\r\n"+
+		"Host: peer.tailnet.ts.net:443\r\n\r\nPIPELINED\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case line := <-got:
+		if line != "PIPELINED\n" {
+			t.Errorf("upstream read %q, want the pipelined payload", line)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("upstream never saw the bytes sent behind the CONNECT request")
+	}
 }
 
 func TestRemoveHopByHop(t *testing.T) {

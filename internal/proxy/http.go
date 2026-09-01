@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-// NewHTTPProxy returns a forward-proxy handler: CONNECT tunnels and plain
-// absolute-URI requests are both sent over dial.
 // idleConnTimeout matches net/http's own default. Without it the zero-value
 // Transport keeps every pooled tailnet connection open for the life of the
 // process.
 const idleConnTimeout = 90 * time.Second
 
+// NewHTTPProxy returns a forward-proxy handler: CONNECT tunnels and plain
+// absolute-URI requests are both sent over dial.
 func NewHTTPProxy(dial DialFunc) http.Handler {
 	return &httpProxy{
 		dial: dial,
@@ -76,7 +76,7 @@ func (p *httpProxy) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upstream.Close()
 
-	client, _, err := http.NewResponseController(w).Hijack()
+	client, brw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		http.Error(w, "hijack: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -86,9 +86,14 @@ func (p *httpProxy) connect(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return
 	}
+	// Read the client through brw, not the raw connection: a client that
+	// pipelines its first payload behind the CONNECT request — a TLS
+	// ClientHello in the same segment, say — leaves those bytes buffered in
+	// the server's reader, and the raw connection no longer has them.
+	//
 	// Both copies end when either side closes: the deferred Close on the way
 	// out unblocks the goroutine.
-	go io.Copy(upstream, client)
+	go io.Copy(upstream, brw.Reader)
 	io.Copy(client, upstream)
 }
 
