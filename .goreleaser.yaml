@@ -33,6 +33,8 @@ archives:
     wrap_in_directory: true
     files:
       - .env.example
+      - LICENSE
+      - README.md
       - docs/service.md
       - src: contrib/install.sh
         dst: install.sh
@@ -40,7 +42,7 @@ archives:
           mode: 0755
       - src: contrib/tailscale-socks.zsh
         dst: contrib/tailscale-socks.zsh
-      - src: contrib/platform/{{ .Os }}.zsh
+      - src: contrib/platform/*.zsh
         dst: contrib/platform
 
 checksum:

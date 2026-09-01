@@ -136,7 +136,7 @@ Break one of these and the program is subtly wrong, not obviously broken.
 
 Pushing a `v*` tag runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`): it builds the same matrix, writes `SHA256SUMS.txt` and creates the GitHub release with one installable archive per target — executable, installer, platform service helper, `.env.example`, README, service docs and license — plus notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree: pick the tag, push it, done.
 
-`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser`, while `make build OS=all ARCH=all` cross-builds the matrix with the toolchain alone. Dependabot opens weekly grouped PRs for direct Go dependencies and actions.
+`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser`, while `make build OS=all ARCH=all` cross-builds the matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
 
 ## Security and license
 

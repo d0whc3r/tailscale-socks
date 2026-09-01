@@ -127,6 +127,7 @@ ZSH
 }
 
 @test "ts_install starts the service and names the binary it wired in" {
+  stub_exe launchctl ':'
   run zsh_run darwin24 <<'ZSH'
 launchctl() { : }
 ts_install
