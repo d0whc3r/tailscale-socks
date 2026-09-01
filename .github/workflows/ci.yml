@@ -15,23 +15,33 @@ on:
 permissions:
   contents: read
 
+# A second push to a pull request supersedes the run in flight. Never on main:
+# every commit there has to reach `tag`, so those runs queue instead.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# `make check` split three ways. The halves are independent and were costing
+# their sum in one job; in parallel the gate costs the slowest of them. `lint`,
+# `test` and `shell` together are `check` plus `build` — the local gate is
+# still the single `make check`.
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      # Neither is on the runner image. Ubuntu 24.04 packages bats 1.10, past
-      # the 1.5.0 the suite needs, so one apt call replaces the clone that
-      # used to build it from source; `bats_require_minimum_version` in
-      # contrib/test/helpers.bash is what fails if a runner ever ships older.
-      - name: shell toolchain
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh bats
-      - run: make check
+      - uses: ./.github/actions/go
+      - run: make lint
+      # Here rather than with `test`, to balance the two Go jobs: this one is
+      # the shorter, and linking the binary is the one thing `go test` skips.
       - run: make build
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/go
+      - run: make test
       # Coverage lands in the run summary, so every push and pull request shows
       # the number without an external service, a token or a third-party action.
       - name: coverage
@@ -49,21 +59,32 @@ jobs:
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # No Go at all: the zsh suite is the one part of the gate that never builds
+  # the module, so it skips the toolchain and runs while the other two compile.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Neither is on the runner image. Ubuntu 24.04 packages bats 1.10, past
+      # the 1.5.0 the suite needs, so one apt call replaces the clone that
+      # used to build it from source; `bats_require_minimum_version` in
+      # contrib/test/helpers.bash is what fails if a runner ever ships older.
+      - name: shell toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh bats
+      - run: make test-sh
+
   vuln:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: ./.github/actions/go
       - run: make vuln
 
   # The conventional commits since the last tag decide the next version:
   # breaking change major, feat minor, fix and perf patch, anything else no
   # release at all. Tagging here rather than in a hook means no tag ever points
-  # at a commit `check` rejected. Gated on `check`, not `vuln`: govulncheck
-  # needs the network and must not block a release.
+  # at a commit the gate rejected. Gated on the three gate jobs, not on `vuln`:
+  # govulncheck needs the network and must not block a release.
   #
   # push=false means HEAD already carries the tag, so `release` runs and
   # nothing is created. That is what makes re-running a failed release work:
@@ -71,7 +92,7 @@ jobs:
   # again.
   tag:
     if: github.event_name == 'push'
-    needs: check
+    needs: [lint, test, shell]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,10 +142,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.tag }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - uses: ./.github/actions/go
       - uses: goreleaser/goreleaser-action@v7
         with:
           args: release --clean

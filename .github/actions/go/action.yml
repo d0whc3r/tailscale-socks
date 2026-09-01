@@ -1,0 +1,30 @@
+name: go
+description: Install the module's Go toolchain and restore this job's build cache.
+
+runs:
+  using: composite
+  steps:
+    # Modules only. setup-go keys that cache on go.sum, which is exactly right
+    # for a module cache and exactly wrong for a build cache.
+    - uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+        cache: true
+
+    # The build cache has to rotate, so it gets its own entry. setup-go writes
+    # its bundle only on a miss, so the first job to finish under a given go.sum
+    # freezes the build cache for every run after it: `vuln` won that race and
+    # left the gate recompiling tailscale.com for vet and again for -race, 128s
+    # of the 152s it took. run_id makes every run write a fresh entry and
+    # restore-keys picks the newest earlier one, so the cache tracks main.
+    #
+    # Keyed by job because a vet fact, a -race object and a plain archive are
+    # three different cache profiles, and one job's misses must not evict what
+    # another job depends on. That is the failure being fixed, not a detail.
+    - uses: actions/cache@v4
+      with:
+        path: ~/.cache/go-build
+        key: go-build-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+        restore-keys: |
+          go-build-${{ github.job }}-${{ hashFiles('go.sum') }}-
+          go-build-${{ github.job }}-
