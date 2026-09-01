@@ -1,0 +1,4 @@
+/tailscale-socks
+dist/
+.env
+*.state
