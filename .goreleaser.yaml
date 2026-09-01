@@ -3,7 +3,8 @@
 version: 2
 
 builds:
-  - main: ./cmd/tailscale-socks
+  - id: tailscale-socks
+    main: ./cmd/tailscale-socks
     binary: tailscale-socks
     # Static and stripped, same as the old `make release` matrix. No
     # `-X main.version`: the version comes from the VCS tag through
@@ -21,11 +22,29 @@ builds:
         goarch: arm
       - goos: windows
         goarch: arm
+    # The hook fires once per target and no-ops on everything but Windows;
+    # running it here rather than after the release keeps the installer inside
+    # the checksum file.
+    hooks:
+      post:
+        - ./packaging/windows-nsis.sh {{ .Os }} {{ .Arch }} {{ .Path }} {{ .Version }}
+
+# One .pkg for every Mac, instead of one per architecture. `replace: false`
+# keeps the per-architecture archives, which is what install.sh consumes.
+universal_binaries:
+  - id: universal
+    ids: [tailscale-socks]
+    replace: false
+    hooks:
+      post: ./packaging/macos-dmg.sh {{ .Path }} {{ .Version }} dist/tailscale-socks-darwin-universal.dmg
 
 # One installable per target: the executable, its platform helper, the service
 # documentation and an installer that keeps all of them together.
 archives:
-  - formats: [tar.gz]
+  # Per-architecture only: the universal binary exists for the .pkg, and a
+  # second darwin archive would just be a bigger download of the same thing.
+  - ids: [tailscale-socks]
+    formats: [tar.gz]
     name_template: '{{ .Binary }}-{{ .Os }}-{{ .Arch }}'
     format_overrides:
       - goos: windows
@@ -45,8 +64,51 @@ archives:
       - src: contrib/platform/*.zsh
         dst: contrib/platform
 
+# Native installer per platform, next to the archives: .deb on Linux, a
+# mountable .dmg on macOS, an NSIS setup on Windows. Each one carries the same
+# payload as the archive — binary, zsh helpers, configuration template, docs —
+# put where that platform expects it. The archives stay for anyone who wants to
+# unpack a tarball instead.
+nfpms:
+  - id: deb
+    ids: [tailscale-socks]
+    package_name: tailscale-socks
+    formats: [deb]
+    file_name_template: '{{ .PackageName }}-{{ .Version }}-{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}'
+    vendor: d0whc3r
+    maintainer: d0whc3r <1378986+d0whc3r@users.noreply.github.com>
+    homepage: https://github.com/d0whc3r/tailscale-socks
+    license: MIT
+    section: net
+    description: |-
+      Reach your tailnet from any local app, without installing Tailscale.
+      A userspace Tailscale node exposing SOCKS5, HTTP and DNS front doors.
+    bindir: /usr/bin
+    contents:
+      - src: contrib/tailscale-socks.zsh
+        dst: /usr/share/tailscale-socks/contrib/tailscale-socks.zsh
+      - src: contrib/platform/linux.zsh
+        dst: /usr/share/tailscale-socks/contrib/platform/linux.zsh
+      # Shipped already named .env, so it is a straight copy to
+      # ~/.tailscale/.env. Not under /etc and not a dpkg conffile: the binary
+      # reads the environment, a .env beside itself and ~/.tailscale/.env, and
+      # never /etc, so tracking it there would only promise something false.
+      - src: .env.example
+        dst: /usr/share/tailscale-socks/.env
+      - src: README.md
+        dst: /usr/share/doc/tailscale-socks/README.md
+      - src: docs/service.md
+        dst: /usr/share/doc/tailscale-socks/service.md
+      - src: LICENSE
+        dst: /usr/share/doc/tailscale-socks/copyright
+
 checksum:
   name_template: SHA256SUMS.txt
+  # The .dmg and the NSIS setup are built by hooks, so GoReleaser does not
+  # track them as artifacts; without this they would ship unchecksummed.
+  extra_files:
+    - glob: dist/tailscale-socks-darwin-universal.dmg
+    - glob: dist/tailscale-socks-setup-windows-*.exe
 
 # Release notes grouped by conventional commit type. Anything that is not
 # feat/fix/perf lands in Other; docs, tests and chores are dropped.
@@ -80,3 +142,6 @@ release:
   github:
     owner: d0whc3r
     name: tailscale-socks
+  extra_files:
+    - glob: dist/tailscale-socks-darwin-universal.dmg
+    - glob: dist/tailscale-socks-setup-windows-*.exe

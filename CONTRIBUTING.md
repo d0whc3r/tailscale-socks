@@ -15,7 +15,7 @@ make vuln       # govulncheck (needs the network, so not part of check)
 make outdated   # direct deps and pinned tools with a newer version (network too)
 make fmt        # rewrite in place: gofmt + import grouping
 make hooks      # point git at .githooks/: check what each commit touches
-make release    # GoReleaser dry run of the release matrix into dist/
+make release    # GoReleaser dry run: binaries, archives and installers into dist/
 make clean
 ```
 
@@ -33,7 +33,7 @@ make build OS=all ARCH=arm64      # every arm64 target
 | staged | runs |
 | --- | --- |
 | `*.go`, `go.mod`, `go.sum` | `make fmt`, re-stage the rewritten files, `make lint test` |
-| `*.zsh`, `*.bats`, `*.bash` | `make test-sh` |
+| `*.zsh`, `*.bats`, `*.bash`, `*.sh`, `*.command` | `make test-sh` |
 | anything else | nothing |
 
 Both groups staged means both run, which is `make check` plus the formatting pass. `git commit --no-verify` skips the hook entirely.
@@ -50,7 +50,7 @@ Only files staged in full are re-staged after `make fmt`. A partially staged fil
 
 ### The zsh helpers
 
-`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), run by `make test-sh` along with a `zsh -n` syntax pass. Same rule: no network, no node.
+`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), run by `make test-sh` along with a `zsh -n` syntax pass over the zsh and an `sh -n` pass over `contrib/install.sh` and `packaging/*.sh`. Same rule: no network, no node. `packaging/install.command` is covered by the same `sh -n` pass. `packaging/windows.nsi` and `packaging/path.ps1` have no syntax check of their own — `make release` compiles the one and the Windows installer exercises the other.
 
 bats runs in bash and cannot call a zsh function directly, so `contrib/test/` has a seam. `contrib/test/harness.zsh` sources the contrib script under a chosen `$OSTYPE` and evals a zsh snippet piped in on stdin; the bats side wraps it in `zsh_run`. Write the snippet as a **quoted** heredoc, so it reaches zsh byte for byte:
 
@@ -134,9 +134,27 @@ Break one of these and the program is subtly wrong, not obviously broken.
 
 `.github/workflows/ci.yml` runs `make check` and `make build` on every push and pull request, publishes the coverage table to the run summary, and runs `make vuln` in a separate job (also weekly, so advisories published after the last commit are still caught).
 
-Pushing a `v*` tag runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`): it builds the same matrix, writes `SHA256SUMS.txt` and creates the GitHub release with one installable archive per target — executable, installer, platform service helper, `.env.example`, README, service docs and license — plus notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree: pick the tag, push it, done.
+Pushing a `v*` tag runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`): it builds the same matrix, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree: pick the tag, push it, done.
 
-`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser`, while `make build OS=all ARCH=all` cross-builds the matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
+Each tag produces two things per platform: a plain archive carrying `contrib/install.sh`, and the platform's own installer. All of them ship the same payload — executable, zsh service helper for that platform, the configuration template, README, service docs, license.
+
+The `.deb` and the Windows setup ship `.env.example` renamed to `.env`, so the user copies it without a rename; the archives and the disk image keep the `.env.example` name, because `contrib/install.sh` is what turns it into `~/.tailscale/.env`. On Windows that lands next to the executable, which `dotEnvPaths` reads, so it is the live configuration from the first install on: the NSIS script writes it with `SetOverwrite off` and the uninstaller leaves it, or a reinstall would clobber a file holding `TS_AUTHKEY`.
+
+| Artifact | Built by | Payload goes to |
+|---|---|---|
+| `.deb` | GoReleaser `nfpms` (pure Go) | `/usr/bin`, `/usr/share/tailscale-socks`, `/usr/share/doc` |
+| `.dmg` | `packaging/macos-dmg.sh` → `xorriso` | wherever `install.sh` puts it — the image is a mountable copy of the archive |
+| setup `.exe` | `packaging/windows-nsis.sh` → `packaging/windows.nsi` → `makensis` | `%LOCALAPPDATA%\Programs\tailscale-socks`, added to the user `PATH` |
+
+The two scripts run as GoReleaser hooks rather than as a step after the release, so their output is inside `SHA256SUMS.txt` like every other artifact. The `nsi` script gets one architecture at a time from the build post-hook, which no-ops on every target that is not Windows; the disk image gets the universal binary GoReleaser makes with `lipo`, so there is one image for every Mac.
+
+**Everything cross-builds, so the release job runs on ubuntu.** That is the reason macOS gets a `.dmg` and not a `.pkg`: `pkgbuild` ships only with Xcode's command line tools, and the tools that would replace it on Linux — Apple's `xar`, plus `bomutils` for the receipt — are packaged in no Ubuntu release and unmaintained since 2012. `xorriso` is in the archive and makes an ISO 9660 image with Rock Ridge extensions, which macOS mounts and which carries the Unix permission bits the executable and `install.command` need.
+
+The image is a mountable copy of the release archive plus `packaging/install.command`, which exists only because Finder runs a `.command` in Terminal and opens a `.sh` in a text editor. It ships `.env.example`, not `.env` like the other two packages, because `contrib/install.sh` is what turns it into `~/.tailscale/.env` — and a read-only disk image is not somewhere you could edit a config anyway.
+
+Nothing is signed — a Developer ID costs $99/year. If that changes, sign the binary before `packaging/macos-dmg.sh` stages it and notarize the image with `xcrun notarytool`, which does need a Mac.
+
+`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser makensis xorriso`, while `make build OS=all ARCH=all` cross-builds the matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
 
 ## Security and license
 

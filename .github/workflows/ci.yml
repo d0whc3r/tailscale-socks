@@ -62,6 +62,11 @@ jobs:
   # SHA256SUMS.txt and publishes the release with notes grouped by conventional
   # commit type. Gated on `check`, not `vuln`: govulncheck needs the network and
   # must not block a tag.
+  #
+  # Every installer is cross-built from here: nfpm is pure Go, makensis and
+  # xorriso are apt packages. Nothing in the matrix needs a macOS runner —
+  # that is why the disk image is an ISO 9660 built by xorriso and not a .pkg,
+  # which only Xcode's pkgbuild can produce.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: check
@@ -78,6 +83,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: installer toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis xorriso
       - uses: goreleaser/goreleaser-action@v7
         with:
           args: release --clean

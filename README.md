@@ -16,16 +16,65 @@ Good for a work laptop you would rather not enroll, a container or CI job that n
 
 ## Install
 
-Each tagged release has an installer archive for macOS, Linux and Windows. Download the one for your architecture, unpack it, and run:
+Every tagged release carries the native installer for each platform. All of
+them install the same set — the executable, the zsh service helpers, the
+configuration template and the docs — and none of them join the tailnet or
+start anything: run `ts_install` when you want that.
+
+| Platform | Download | Install |
+|---|---|---|
+| macOS | `tailscale-socks-darwin-universal.dmg` | open it, then double-click `install.command` |
+| Linux | `tailscale-socks-<version>-<arch>.deb` | `sudo apt install ./tailscale-socks-<version>-<arch>.deb` |
+| Windows | `tailscale-socks-setup-windows-<arch>.exe` | run it — per-user, no administrator |
+
+On **macOS** the disk image holds one universal binary for Intel and Apple
+silicon. `install.command` puts everything in your home directory and creates
+`~/.tailscale/.env` from the template, only when it does not already exist:
+
+```sh
+source "$HOME/.local/share/tailscale-socks/contrib/tailscale-socks.zsh"
+```
+
+Nothing in the image is signed with a Developer ID — that needs a paid Apple
+account. A browser download is quarantined, so the first run of
+`install.command` needs a right-click → **Open**, or one pass through **System
+Settings → Privacy & Security → Open Anyway**. Running `./install.sh` from the
+mounted volume in a terminal skips that entirely.
+
+On **Linux** the package installs system-wide. Load the helpers and copy the
+configuration — it ships already named `.env`, so there is no rename, and every
+line in it is commented out, so an untouched copy leaves the defaults alone:
+
+```sh
+source /usr/share/tailscale-socks/contrib/tailscale-socks.zsh
+mkdir -p ~/.tailscale && cp -n /usr/share/tailscale-socks/.env ~/.tailscale/.env
+```
+
+On **Windows** the installer puts everything in
+`%LOCALAPPDATA%\Programs\tailscale-socks` and adds it to your `PATH`. There the
+`.env` lands next to the executable, which is a path the binary reads on its
+own, so edit it in place — nothing to copy. Reinstalling never overwrites it and
+uninstalling leaves it behind. Source `contrib/tailscale-socks.zsh` from zsh
+under MSYS2, Cygwin or Git Bash.
+
+### Archives
+
+Every release also has a plain `.tar.gz` (`.zip` on Windows) per architecture,
+with `install.sh` inside. Use it when you want the files in your home directory
+instead of system-wide, or on a Linux distribution without `dpkg`:
 
 ```sh
 ./install.sh
 source "$HOME/.local/share/tailscale-socks/contrib/tailscale-socks.zsh"
 ```
 
-On Windows, unpack the `.zip` and run those commands from zsh under MSYS2, Cygwin or Git Bash. The installer puts the executable on `$PATH` (`~/.local/bin`, or `~/bin` on Windows), installs the matching service helper, and creates `~/.tailscale/.env` from `.env.example` only when it does not already exist. It does not join the tailnet or start a service; run `ts_install` when you want that.
+It puts the executable on `$PATH` (`~/.local/bin`, or `~/bin` on Windows),
+installs the matching service helper, and creates `~/.tailscale/.env` from
+`.env.example` only when it does not already exist.
 
-Or build it yourself, with Go 1.27 or newer:
+### From source
+
+With Go 1.27 or newer:
 
 ```sh
 git clone https://github.com/d0whc3r/tailscale-socks && cd tailscale-socks
