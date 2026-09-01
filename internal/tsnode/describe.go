@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"tailscale.com/ipn"
@@ -70,6 +71,10 @@ func describe(st *ipnstate.Status, prefs *ipn.Prefs, stateDir string) string {
 			routers = append(routers, fmt.Sprintf("%s -> %s", name, strings.Join(rs, ",")))
 		}
 	}
+	// st.Peer is a map: without this the two lists come out in a different
+	// order on every run, and the summary is meant to be diffable.
+	slices.Sort(exits)
+	slices.Sort(routers)
 	writeList(&b, "exit node candidates", exits)
 	writeList(&b, "subnet routers", routers)
 	if len(st.Health) > 0 {

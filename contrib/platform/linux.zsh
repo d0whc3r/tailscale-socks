@@ -15,7 +15,8 @@ _ts_svc_check() {
 _ts_installed() { [[ -f $TS_SOCKS_UNIT ]] }
 
 _ts_write_service() {
-  local bin=$1
+  # systemd reads % as a specifier prefix in ExecStart; %% is the literal one.
+  local bin=${1//\%/%%}
   mkdir -p ${TS_SOCKS_UNIT:h}
   cat > $TS_SOCKS_UNIT <<UNIT
 [Unit]

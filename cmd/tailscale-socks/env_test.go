@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,6 +42,9 @@ func TestLoadDotEnvsPrecedence(t *testing.T) {
 }
 
 func TestLoadDotEnvsWarnsOnLoosePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no permission bits to warn about: os.Stat synthesises 0666 on Windows")
+	}
 	loose := writeEnvFile(t, t.TempDir(), "TS_AUTHKEY=tskey-auth-secret\n", 0o644)
 	msgs := loadDotEnvs([]string{loose})
 	t.Setenv("TS_AUTHKEY", "") // do not leak into other tests

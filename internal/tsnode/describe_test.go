@@ -7,6 +7,7 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/types/key"
 	"tailscale.com/types/views"
 )
 
@@ -150,6 +151,33 @@ func TestDescribeIsOneFactPerLine(t *testing.T) {
 		}
 		if label != strings.ToLower(label) {
 			t.Errorf("label %q is not lowercase; got:\n%s", label, got)
+		}
+	}
+}
+
+// st.Peer is a map, so the two peer lists are only stable if describe sorts
+// them: without that the summary changes order between runs of the same
+// unchanged tailnet.
+func TestDescribeListsAreOrdered(t *testing.T) {
+	t.Parallel()
+
+	st := testStatus()
+	for _, name := range []string{"alpha", "zulu", "mike"} {
+		st.Peer[key.NewNode().Public()] = &ipnstate.PeerStatus{
+			DNSName:        name + ".tailnet.ts.net.",
+			ExitNodeOption: true,
+		}
+	}
+
+	// Repeated because a map that happens to iterate in order once proves
+	// nothing; the first result is the one every later run has to match.
+	want := describe(st, &ipn.Prefs{}, "/state/dir")
+	if !strings.Contains(want, "  - alpha.tailnet.ts.net (online=false)\n  - gateway.") {
+		t.Fatalf("exit node candidates are not sorted by name; got:\n%s", want)
+	}
+	for i := range 20 {
+		if got := describe(st, &ipn.Prefs{}, "/state/dir"); got != want {
+			t.Fatalf("run %d differs from the first:\n%s\nwant:\n%s", i, got, want)
 		}
 	}
 }

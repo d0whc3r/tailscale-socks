@@ -48,6 +48,23 @@ ZSH
   fi
 }
 
+@test "darwin escapes XML metacharacters in the paths it writes into the plist" {
+  export HOME="$BATS_TEST_TMPDIR/R&D"
+  mkdir -p "$HOME"
+  run zsh_run darwin <<'ZSH'
+launchctl() { : }
+_ts_write_service '/opt/R&D/tailscale-socks'
+cat $TS_SOCKS_PLIST
+ZSH
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"<string>/opt/R&amp;D/tailscale-socks</string>"* ]]
+  [[ "$output" != *"/opt/R&D/"* ]]
+  if command -v plutil >/dev/null; then
+    run plutil -lint "$HOME/Library/LaunchAgents/tailscale-socks.plist"
+    [ "$status" -eq 0 ]
+  fi
+}
+
 @test "darwin reloads the agent instead of stacking a second one" {
   run zsh_run darwin24 <<'ZSH'
 launchctl() { print -r -- "launchctl $*" }
@@ -77,6 +94,17 @@ ZSH
   [[ "$output" == *"ExecStart=/opt/bin/tailscale-socks run"* ]]
   [[ "$output" == *"Restart=on-failure"* ]]
   [[ "$output" == *"WantedBy=default.target"* ]]
+}
+
+@test "linux doubles a percent sign, which systemd would read as a specifier" {
+  isolate
+  run zsh_run linux <<'ZSH'
+systemctl() { : }
+_ts_write_service '/opt/100%pure/tailscale-socks'
+cat $TS_SOCKS_UNIT
+ZSH
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ExecStart=/opt/100%%pure/tailscale-socks run"* ]]
 }
 
 @test "linux enables the unit for autostart" {

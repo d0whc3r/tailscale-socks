@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/joho/godotenv"
 )
@@ -36,8 +37,10 @@ func loadDotEnvs(paths []string) (messages []string) {
 		if err != nil || fi.IsDir() {
 			continue
 		}
-		// These files may hold TS_AUTHKEY, which is a credential.
-		if fi.Mode().Perm()&0o077 != 0 {
+		// These files may hold TS_AUTHKEY, which is a credential. Windows
+		// has no such bits — os.Stat synthesises 0666 there, so the check
+		// would warn on every run and point at a chmod that does nothing.
+		if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
 			messages = append(messages, fmt.Sprintf("warning: %s is readable by other users; chmod 600 it (it may hold TS_AUTHKEY)", p))
 		}
 		if err := godotenv.Load(p); err != nil {
