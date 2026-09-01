@@ -61,6 +61,7 @@ The test: every changed line traces directly to the request.
 ```sh
 make check     # goimports -l + go vet + staticcheck + go test -race ./...
 make build     # host binary; make release for the full matrix
+make cover     # per-function statement coverage; cover-html opens a browser
 make vuln      # govulncheck; needs the network, so it is not part of check
 make outdated  # direct deps and pinned tools with a newer version; network too
 ```
@@ -120,7 +121,7 @@ output.
 
 **Readable at a glance. Flat, named, spaced. Idiomatic before clever.**
 
-- `gofmt` via `make fmt` (`goimports -local github.com/josep/tailscale-socks`). Import groups: stdlib, third party, this module. Never hand-format imports.
+- `gofmt` via `make fmt` (`goimports -local github.com/d0whc3r/tailscale-socks`). Import groups: stdlib, third party, this module. Never hand-format imports.
 - Package comment on every package, doc comment on every exported identifier, starting with its name. Existing packages all do this; keep it that way.
 - Comments say *why*, not *what the code already says*. The good ones in this repo explain a non-obvious decision — why the resolver returns a nil IP, why the state dir ignores the binary name, why the DNS default is 5354.
 - Wrap errors with context and `%w`: `fmt.Errorf("joining tailnet: %w", err)`. Lowercase, no trailing punctuation, no "failed to". Several failures worth reporting → `errors.Join`.

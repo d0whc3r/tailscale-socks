@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/josep/tailscale-socks/internal/tsnode"
+	"github.com/d0whc3r/tailscale-socks/internal/tsnode"
 )
 
 // testConfigCmd is a fully resolved configCmd: every value is set, so a test

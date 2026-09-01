@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/josep/tailscale-socks/internal/tsnode"
+	"github.com/d0whc3r/tailscale-socks/internal/tsnode"
 )
 
 // configCmd prints the configuration the other commands would run with, once

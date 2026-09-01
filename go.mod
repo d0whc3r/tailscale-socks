@@ -1,4 +1,4 @@
-module github.com/josep/tailscale-socks
+module github.com/d0whc3r/tailscale-socks
 
 go 1.27.0
 

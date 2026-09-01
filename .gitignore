@@ -1,5 +1,6 @@
 /tailscale-socks
 /dist/
+/coverage/
 /.env
 *.state
 /.tmp/

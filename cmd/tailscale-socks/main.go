@@ -17,8 +17,8 @@ import (
 
 	"github.com/alecthomas/kong"
 
-	"github.com/josep/tailscale-socks/internal/proxy"
-	"github.com/josep/tailscale-socks/internal/tsnode"
+	"github.com/d0whc3r/tailscale-socks/internal/proxy"
+	"github.com/d0whc3r/tailscale-socks/internal/tsnode"
 )
 
 const description = `Join a tailnet as a userspace node and expose it locally.

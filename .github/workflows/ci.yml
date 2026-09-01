@@ -23,6 +23,22 @@ jobs:
           cache: true
       - run: make check
       - run: make build
+      # Coverage lands in the run summary, so every push and pull request shows
+      # the number without an external service, a token or a third-party action.
+      - name: coverage
+        run: |
+          make cover
+          {
+            echo "### Coverage: $(go tool cover -func=coverage/cover.out | tail -1 | awk '{print $NF}')"
+            echo
+            echo '<details><summary>per function</summary>'
+            echo
+            echo '```'
+            go tool cover -func=coverage/cover.out
+            echo '```'
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   vuln:
     runs-on: ubuntu-latest

@@ -2,6 +2,7 @@ BIN     := tailscale-socks
 PKG     := ./cmd/tailscale-socks
 MODULE  := $(shell go list -m)
 DIST    := dist
+COVER   := coverage
 
 # Modules behind the go.mod `tool` block. Lazy `=`: only `make outdated` pays
 # for the extra `go list`.
@@ -22,7 +23,7 @@ PLATFORMS := \
 	linux/amd64 linux/arm64 linux/arm \
 	windows/amd64 windows/arm64
 
-.PHONY: all build run test vet fmt fmt-check lint check vuln outdated release tidy clean
+.PHONY: all build run test vet fmt fmt-check lint check cover cover-html vuln outdated release tidy clean
 
 all: check build
 
@@ -90,6 +91,19 @@ lint: fmt-check vet
 
 check: lint test
 
+# Statement coverage, straight from the toolchain. `cover` prints the
+# per-function table with the module total on the last line; `cover-html`
+# opens the annotated source in a browser.
+COVERPROFILE := $(COVER)/cover.out
+
+cover:
+	@mkdir -p $(COVER)
+	go test -coverprofile=$(COVERPROFILE) ./...
+	@go tool cover -func=$(COVERPROFILE)
+
+cover-html: cover
+	go tool cover -html=$(COVERPROFILE)
+
 # Known vulnerabilities in the dependency tree. Kept out of `check`: it needs
 # the network and the vulnerability database.
 vuln:
@@ -109,4 +123,4 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf $(BIN) $(BIN).exe $(DIST)
+	rm -rf $(BIN) $(BIN).exe $(DIST) $(COVER)
