@@ -37,7 +37,8 @@ install -m 0644 "$root/contrib/tailscale-socks.zsh" "$stage/contrib/tailscale-so
 install -m 0644 "$root/contrib/platform/darwin.zsh" "$stage/contrib/platform/darwin.zsh"
 install -m 0644 "$root/.env.example" "$stage/.env.example"
 install -m 0644 "$root/README.md" "$stage/README.md"
-install -m 0644 "$root/docs/service.md" "$stage/service.md"
+install -d -m 0755 "$stage/docs"
+install -m 0644 "$root"/docs/*.md "$stage/docs/"
 install -m 0644 "$root/LICENSE" "$stage/LICENSE"
 
 mkdir -p "$(dirname -- "$out")"

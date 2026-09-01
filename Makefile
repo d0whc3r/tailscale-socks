@@ -106,7 +106,7 @@ lint: fmt-check vet
 # Every service manager is stubbed, so all three backends are exercised on
 # whatever machine runs this: nothing is installed and no node is started.
 ZSHFILES := contrib/tailscale-socks.zsh contrib/platform/*.zsh contrib/test/*.zsh
-SHFILES := contrib/install.sh packaging/*.sh packaging/install.command
+SHFILES := contrib/install.sh packaging/*.sh packaging/install.command .githooks/*
 
 test-sh:
 	@command -v zsh >/dev/null 2>&1 || { echo "zsh not installed"; exit 1; }

@@ -99,6 +99,7 @@ Multi-step work → state the plan up front:
 **Commits, pushes and PR replies are visible to the team. Each needs an explicit request.**
 
 - Never commit unless asked — wait, even with changes staged.
+- Commit subjects are conventional commits: `type(scope)!: description`, no trailing full stop, 100 characters at most. `.githooks/commit-msg` enforces it; the release version is derived from it.
 - Never push unless asked.
 - Never add a co-author.
 - Never reply to PR comments unless asked. Draft it, let the human post.

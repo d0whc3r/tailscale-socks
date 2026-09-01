@@ -33,7 +33,8 @@ cp "$root/packaging/path.ps1" "$stage/path.ps1"
 # copy changes nothing and ~/.tailscale/.env still applies.
 cp "$root/.env.example" "$stage/.env"
 cp "$root/README.md" "$stage/README.md"
-cp "$root/docs/service.md" "$stage/service.md"
+mkdir -p "$stage/docs"
+cp "$root"/docs/*.md "$stage/docs/"
 cp "$root/LICENSE" "$stage/LICENSE"
 
 # VIProductVersion takes four numbers and nothing else; a snapshot version

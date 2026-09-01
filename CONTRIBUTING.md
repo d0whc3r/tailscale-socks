@@ -14,7 +14,7 @@ make cover      # per-function statement coverage; cover-html opens a browser
 make vuln       # govulncheck (needs the network, so not part of check)
 make outdated   # direct deps and pinned tools with a newer version (network too)
 make fmt        # rewrite in place: gofmt + import grouping
-make hooks      # point git at .githooks/: check what each commit touches
+make hooks      # point git at .githooks/: check what each commit touches and says
 make release    # GoReleaser dry run: binaries, archives and installers into dist/
 make clean
 ```
@@ -33,12 +33,24 @@ make build OS=all ARCH=arm64      # every arm64 target
 | staged | runs |
 | --- | --- |
 | `*.go`, `go.mod`, `go.sum` | `make fmt`, re-stage the rewritten files, `make lint test` |
-| `*.zsh`, `*.bats`, `*.bash`, `*.sh`, `*.command` | `make test-sh` |
+| `*.zsh`, `*.bats`, `*.bash`, `*.sh`, `*.command`, `.githooks/*` | `make test-sh` |
 | anything else | nothing |
 
 Both groups staged means both run, which is `make check` plus the formatting pass. `git commit --no-verify` skips the hook entirely.
 
 Only files staged in full are re-staged after `make fmt`. A partially staged file — `git add -p`, or edited again after `git add` — is named and left alone, because `git add` would take the whole working tree copy and commit the hunks you kept back.
+
+`.githooks/commit-msg` checks the subject line against the conventional commit grammar, `type(scope)!: description`:
+
+| rule | |
+| --- | --- |
+| type | one of `build chore ci docs feat fix perf refactor revert style test` |
+| scope | optional, in parentheses |
+| `!` | optional, before the colon |
+| description | non-empty, after `: `, no trailing full stop |
+| subject | 100 characters at most |
+
+The subjects `git merge` and `git revert` write themselves are let through, and so is everything below the first line. This is not house style: `packaging/next-version.sh` reads these prefixes to pick the next tag and GoReleaser groups the release notes by them, so a subject the pattern misses ships unversioned and unmentioned. Same escape hatch, `git commit --no-verify`.
 
 ## Tests
 

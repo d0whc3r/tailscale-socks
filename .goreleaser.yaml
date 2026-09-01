@@ -54,7 +54,8 @@ archives:
       - .env.example
       - LICENSE
       - README.md
-      - docs/service.md
+      # Glob, not a list: a new page under docs/ ships without a change here.
+      - docs/*.md
       - src: contrib/install.sh
         dst: install.sh
         info:
@@ -97,8 +98,10 @@ nfpms:
         dst: /usr/share/tailscale-socks/.env
       - src: README.md
         dst: /usr/share/doc/tailscale-socks/README.md
-      - src: docs/service.md
-        dst: /usr/share/doc/tailscale-socks/service.md
+      # Under docs/, not straight into the doc directory: the index page is
+      # docs/README.md and would collide with the project README above.
+      - src: docs/*.md
+        dst: /usr/share/doc/tailscale-socks/docs/
       - src: LICENSE
         dst: /usr/share/doc/tailscale-socks/copyright
 

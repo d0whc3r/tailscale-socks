@@ -33,7 +33,7 @@ VIAddVersionKey "FileDescription" "${NAME} installer"
 !insertmacro MUI_PAGE_LICENSE "${STAGE}/LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\service.md"
+!define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\docs\service.md"
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Read how to run it as a service"
 !insertmacro MUI_PAGE_FINISH
 
@@ -47,8 +47,10 @@ Section "install"
   File "${STAGE}/tailscale-socks.exe"
   File "${STAGE}/LICENSE"
   File "${STAGE}/README.md"
-  File "${STAGE}/service.md"
   File "${STAGE}/path.ps1"
+
+  SetOutPath "$INSTDIR\docs"
+  File "${STAGE}/docs/*.md"
 
   SetOutPath "$INSTDIR\contrib"
   File "${STAGE}/contrib/tailscale-socks.zsh"
@@ -97,7 +99,8 @@ Section "uninstall"
   Delete "$INSTDIR\tailscale-socks.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\README.md"
-  Delete "$INSTDIR\service.md"
+  Delete "$INSTDIR\docs\*.md"
+  RMDir "$INSTDIR\docs"
   Delete "$INSTDIR\path.ps1"
   Delete "$INSTDIR\uninstall.exe"
 

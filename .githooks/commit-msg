@@ -1,0 +1,45 @@
+#!/bin/sh
+# Commit message gate: the subject line has to be a conventional commit.
+#
+# It is not style for its own sake: packaging/next-version.sh reads the log
+# since the last tag to pick the next version, and GoReleaser groups the
+# release notes by the same prefixes. A subject the pattern misses is a change
+# that ships unversioned and unmentioned.
+#
+# Enable with `make hooks`, skip one commit with `git commit --no-verify`.
+
+set -eu
+
+TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+MAXLEN=100
+
+# The first line that is neither blank nor a comment. `git commit -v` appends
+# the diff below the message; taking only that line ignores it.
+subject=$(grep -v '^#' "$1" | grep -m1 . || true)
+
+# git runs this hook for merges and reverts too, and neither subject is ours to
+# shape: `git merge` and `git revert` write them.
+case $subject in
+'Merge '* | 'Revert '*) exit 0 ;;
+esac
+
+fail() {
+	echo "commit-msg: $1" >&2
+	echo >&2
+	echo "  $subject" >&2
+	echo >&2
+	echo "expected: type(scope)!: description" >&2
+	echo "types:    $(printf '%s' "$TYPES" | tr '|' ' ')" >&2
+	echo "skip once with: git commit --no-verify" >&2
+	exit 1
+}
+
+printf '%s\n' "$subject" | grep -qE "^($TYPES)(\([^()]+\))?!?: .+" ||
+	fail 'subject is not a conventional commit'
+
+[ "${#subject}" -le "$MAXLEN" ] ||
+	fail "subject is ${#subject} characters, over the $MAXLEN limit"
+
+case $subject in
+*.) fail 'subject ends in a full stop' ;;
+esac
