@@ -8,6 +8,7 @@ cmd/tailscale-socks   CLI: flags, help, .env loading, wiring, error reporting
 internal/tsnode       the Tailscale node: prefs, exit node, DNS, dialing
 internal/proxy        SOCKS5, HTTP and DNS servers over a tailnet dialer
 contrib/              zsh helpers; platform/ holds one service backend each
+contrib/test/         bats suite over the helpers; harness.zsh is the seam
 .env.example          every variable, with its default
 Makefile              build, check, cover, vuln, outdated, release
 ```
@@ -71,7 +72,10 @@ applies preferences in one `EditPrefs` call: `RouteAll` (subnet routes),
 from `exitnode.go`.
 
 `Node.DialContext` is the single point every server dials through, so name
-resolution is fixed in one place:
+resolution is fixed in one place. It routes through two function fields,
+`dialTS` and `lookupIP`, which `Start` points at `tsnet.Server.Dial` and
+`Node.LookupIP` — that is what lets a test drive the three branches below with
+no tailnet:
 
 1. `addr` is already an IP → dial it.
 2. Otherwise resolve the name through the tailnet DNS (`LookupIP`, an A and an

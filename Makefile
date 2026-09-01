@@ -23,7 +23,7 @@ PLATFORMS := \
 	linux/amd64 linux/arm64 linux/arm \
 	windows/amd64 windows/arm64
 
-.PHONY: all build run test vet fmt fmt-check lint check cover cover-html vuln outdated release tidy hooks clean
+.PHONY: all build run test test-sh vet fmt fmt-check lint check cover cover-html vuln outdated release tidy hooks clean
 
 all: hooks check build
 
@@ -64,8 +64,13 @@ build:
 run: build
 	./$(BIN)
 
+# Release artifacts are GoReleaser's job, so the matrix lives in one place
+# (.goreleaser.yaml): this is the local dry run, CI runs the real thing on a tag
+# push. Cross-building without GoReleaser still works: make build OS=all ARCH=all
 release:
-	@$(MAKE) build OS=all ARCH=all
+	@command -v goreleaser >/dev/null 2>&1 || \
+		{ echo "goreleaser not installed: brew install goreleaser"; exit 1; }
+	goreleaser release --snapshot --clean
 
 # -race because every listener runs in its own goroutine.
 test:
@@ -89,7 +94,21 @@ fmt-check:
 lint: fmt-check vet
 	go tool staticcheck ./...
 
-check: lint test
+# The zsh helpers get the same treatment as the Go code. `zsh -n` is the only
+# linting there is — shellcheck rejects the dialect outright (SC1071) — and
+# the suite runs in bats, which needs 1.5.0 or newer for `run --separate-stderr`.
+# Every service manager is stubbed, so all three backends are exercised on
+# whatever machine runs this: nothing is installed and no node is started.
+SHFILES := contrib/tailscale-socks.zsh contrib/platform/*.zsh contrib/test/*.zsh
+
+test-sh:
+	@command -v zsh >/dev/null 2>&1 || { echo "zsh not installed"; exit 1; }
+	@command -v bats >/dev/null 2>&1 || \
+		{ echo "bats not installed: brew install bats-core"; exit 1; }
+	@for f in $(SHFILES); do zsh -n "$$f" || exit 1; done
+	bats --print-output-on-failure contrib/test
+
+check: lint test test-sh
 
 # Statement coverage, straight from the toolchain. `cover` prints the
 # per-function table with the module total on the last line; `cover-html`

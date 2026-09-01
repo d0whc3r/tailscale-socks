@@ -81,3 +81,64 @@ func TestFlagEnvVars(t *testing.T) {
 		}
 	}
 }
+
+// TestNodeFlagsConfig pins the mapping from the flags onto tsnode.Config. This
+// is where a field wired to the wrong flag stops being visible: the node comes
+// up fine and quietly ignores what the user asked for.
+func TestNodeFlagsConfig(t *testing.T) {
+	t.Parallel()
+
+	logf := func(string, ...any) {}
+
+	// The strings are a straight copy, so one case covers them.
+	cfg := nodeFlags{
+		Hostname: "box",
+		StateDir: "/state",
+		AuthKey:  "tskey-auth-notasecretanymore",
+		ExitNode: "auto:any",
+	}.config(logf)
+	for _, c := range []struct{ field, got, want string }{
+		{"Hostname", cfg.Hostname, "box"},
+		{"StateDir", cfg.StateDir, "/state"},
+		{"AuthKey", cfg.AuthKey, "tskey-auth-notasecretanymore"},
+		{"ExitNode", cfg.ExitNode, "auto:any"},
+	} {
+		if c.got != c.want {
+			t.Errorf("config().%s = %q, want %q", c.field, c.got, c.want)
+		}
+	}
+	if cfg.Logf == nil {
+		t.Error("config() left Logf nil; the login URL would go nowhere")
+	}
+
+	// Exactly one flag on per case, so a field wired to the wrong flag fails.
+	tests := []struct {
+		name  string
+		flags nodeFlags
+		want  [3]bool // ExitNodeAllowLAN, AcceptRoutes, AcceptDNS
+	}{
+		{"nothing on", nodeFlags{}, [3]bool{false, false, false}},
+		{"exit-node-allow-lan", nodeFlags{ExitNodeAllowLan: true}, [3]bool{true, false, false}},
+		{"accept-routes", nodeFlags{AcceptRoutes: true}, [3]bool{false, true, false}},
+		{"accept-dns", nodeFlags{AcceptDns: true}, [3]bool{false, false, true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := tt.flags.config(logf)
+			got := [3]bool{cfg.ExitNodeAllowLAN, cfg.AcceptRoutes, cfg.AcceptDNS}
+			if got != tt.want {
+				t.Errorf("{ExitNodeAllowLAN, AcceptRoutes, AcceptDNS} = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// --verbose is the only flag that turns on tsnet's internal chatter.
+	if quiet := (nodeFlags{}).config(logf); quiet.DebugLogf != nil {
+		t.Error("config() set DebugLogf without --verbose")
+	}
+	if loud := (nodeFlags{Verbose: true}).config(logf); loud.DebugLogf == nil {
+		t.Error("config() with --verbose left DebugLogf nil")
+	}
+}

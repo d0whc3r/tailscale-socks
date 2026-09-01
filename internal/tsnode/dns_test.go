@@ -1,6 +1,10 @@
 package tsnode
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net"
 	"net/netip"
 	"testing"
 
@@ -112,4 +116,32 @@ func FuzzParseAddrs(f *testing.F) {
 			}
 		}
 	})
+}
+
+// TestDNSWithoutTheSubsystem pins every DNS entry point on a node that came up
+// with tailnet DNS disabled (--no-accept-dns): each one must report ErrNoDNS or
+// close cleanly, never dereference the missing dns.Manager.
+func TestDNSWithoutTheSubsystem(t *testing.T) {
+	t.Parallel()
+
+	var n Node // n.dns is nil, as when AcceptDNS is false
+
+	if n.HasDNS() {
+		t.Error("HasDNS() = true with no DNS subsystem")
+	}
+	if _, err := n.DNSQuery(context.Background(), nil, "udp", netip.AddrPort{}); !errors.Is(err, ErrNoDNS) {
+		t.Errorf("DNSQuery() = %v, want ErrNoDNS", err)
+	}
+	if _, err := n.LookupIP(context.Background(), "peer.tailnet.ts.net"); !errors.Is(err, ErrNoDNS) {
+		t.Errorf("LookupIP() = %v, want ErrNoDNS", err)
+	}
+
+	// The TCP path has no error to return, so closing the connection is the
+	// only way it can refuse without leaking it.
+	client, server := net.Pipe()
+	defer client.Close()
+	n.HandleDNSTCPConn(server, netip.AddrPort{})
+	if _, err := client.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Errorf("read after HandleDNSTCPConn() = %v, want EOF", err)
+	}
 }

@@ -59,14 +59,20 @@ The test: every changed line traces directly to the request.
 **Define the check first. Not done until it passes.**
 
 ```sh
-make check     # goimports -l + go vet + staticcheck + go test -race ./...
-make build     # host binary; make release for the full matrix
+make check     # lint + go test -race ./... + test-sh
+make test-sh   # zsh -n over contrib/ + the bats suite in contrib/test
+make build     # host binary; OS=all ARCH=all for the full matrix
 make cover     # per-function statement coverage; cover-html opens a browser
 make vuln      # govulncheck; needs the network, so it is not part of check
 make outdated  # direct deps and pinned tools with a newer version; network too
 ```
 
-`make check` is the gate. `goimports`, `staticcheck` and `govulncheck` are
+`make check` is the gate, and it now covers the shell too: `make test-sh`
+needs `zsh` and `bats` >= 1.5.0 (`brew install bats-core`). There is no linter
+for zsh — shellcheck rejects the dialect with SC1071 — so `zsh -n` is the
+syntax check.
+
+`goimports`, `staticcheck` and `govulncheck` are
 pinned in the `tool` block of `go.mod` and run through `go tool` — never
 install them separately, never `go run ...@latest`, never add a second linter
 config.
@@ -81,7 +87,8 @@ Turn the task into something verifiable:
 needs a real tailnet and a login; a test that calls it is broken, not slow. Test
 the pure parts instead — the pattern is already in the repo:
 
-- fake the seam: `proxy.DialFunc` and `proxy.DNSBackend` are interfaces so the servers can be tested without a tailnet.
+- fake the seam: `proxy.DialFunc` and `proxy.DNSBackend` are interfaces so the servers can be tested without a tailnet, and `Node.dialTS`/`Node.lookupIP` are function fields so `DialContext` can be.
+- split the pure part out of the one that needs a live node: `describe` from `Describe`, `prefsFor` from `applyPrefs`. That is where the logic worth testing lives.
 - build fixtures by hand: `testStatus()` in `internal/tsnode` fakes an `ipnstate.Status`.
 - table-driven subtests, `t.Helper()` in helpers, `t.TempDir()` for anything on disk.
 

@@ -19,7 +19,7 @@ make vuln       # govulncheck (needs the network, so not part of check)
 make outdated   # direct deps and pinned tools with a newer version (network too)
 make fmt        # rewrite in place: gofmt + import grouping
 make hooks      # point git at .githooks/: fmt + check on every commit
-make release    # the full static matrix into dist/
+make release    # GoReleaser dry run of the release matrix into dist/
 make clean
 ```
 
@@ -47,12 +47,49 @@ needs a real tailnet and a login; a test that calls it is broken, not slow.
 Test the pure parts — the patterns are already in the repo:
 
 - **Fake the seam.** `proxy.DialFunc` and `proxy.DNSBackend` are interfaces so
-  the servers can be exercised end to end without a tailnet.
+  the servers can be exercised end to end without a tailnet; `Node.dialTS` and
+  `Node.lookupIP` are function fields so `DialContext` can be.
 - **Build fixtures by hand.** `testStatus()` in `internal/tsnode` fakes an
-  `ipnstate.Status`; `describe` is split from `Describe` so it can be tested
+  `ipnstate.Status`; `describe` is split from `Describe`, and `prefsFor` from
+  `applyPrefs`, so each can be tested
   against it.
 - Table-driven subtests, `t.Helper()` in helpers, `t.TempDir()` for anything on
   disk.
+
+### The zsh helpers
+
+`contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core)
+(1.5.0 or newer), run by `make test-sh` along with a `zsh -n` syntax pass.
+Same rule: no network, no node.
+
+bats runs in bash and cannot call a zsh function directly, so `contrib/test/`
+has a seam. `contrib/test/harness.zsh` sources the contrib script under a
+chosen `$OSTYPE` and evals a zsh snippet piped in on stdin; the bats side wraps
+it in `zsh_run`. Write the snippet as a **quoted** heredoc, so it reaches zsh
+byte for byte:
+
+```bash
+@test "OSTYPE=msys selects the Task Scheduler backend" {
+  run zsh_run msys <<'ZSH'
+print -r -- "$TS_SOCKS_OS"
+ZSH
+  [ "$output" = "windows" ]
+}
+```
+
+Because the service manager is a shell function in the test, every backend is
+exercised wherever the suite runs: the Windows task is verified from macOS and
+the launchd agent from Linux.
+
+- **Stub with a function** for anything the code calls as a command —
+  `launchctl`, `systemctl`, `powershell`, `cygpath`. A function shadows the
+  real program.
+- **Stub with a file** when the code tests `$commands` instead of calling —
+  `_ts_svc_check` does, so use the `stub_exe` helper.
+- `isolate` points `$HOME` at the test's temp directory. Call it in `setup()`
+  before anything writes a plist or a unit.
+- Assert on the **generated artefact**, not on the call: read back the plist,
+  the unit, the `run.cmd`, the `Register-ScheduledTask` line.
 
 Turn the task into something verifiable before writing code:
 
@@ -164,9 +201,19 @@ pull request, publishes the coverage table to the run summary, and runs
 `make vuln` in a separate job (also weekly, so advisories published after the
 last commit are still caught).
 
-Pushing a `v*` tag runs `make release`, writes `SHA256SUMS.txt` and creates the
-GitHub release with the binaries attached. Dependabot opens weekly grouped PRs
-for direct Go dependencies and actions.
+Pushing a `v*` tag runs [GoReleaser](https://goreleaser.com)
+(`.goreleaser.yaml`): it builds the same matrix, writes `SHA256SUMS.txt` and
+creates the GitHub release with the binaries attached and the notes grouped by
+conventional commit type — `feat:` under Features, `fix:` under Fixes, and
+`docs:`/`test:`/`chore:`/`ci:`/`style:`/`refactor:` dropped. A commit subject
+without a type still ships, under Other. The version in the binary is the tag
+itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in
+the tree: pick the tag, push it, done.
+
+`make release` runs the same config locally as a snapshot; it needs
+`brew install goreleaser`, while `make build OS=all ARCH=all` cross-builds the
+matrix with the toolchain alone. Dependabot opens weekly grouped PRs for direct
+Go dependencies and actions.
 
 ## Security and license
 

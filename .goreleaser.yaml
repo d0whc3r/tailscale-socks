@@ -1,0 +1,65 @@
+# Release pipeline for a tag push. One matrix, one place: CI runs
+# `goreleaser release`, `make release` runs the same config as a snapshot.
+version: 2
+
+builds:
+  - main: ./cmd/tailscale-socks
+    binary: tailscale-socks
+    # Static and stripped, same as the old `make release` matrix. No
+    # `-X main.version`: the version comes from the VCS tag through
+    # debug.ReadBuildInfo, which -trimpath leaves intact.
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64, arm]
+    # GOARM=7 is the toolchain default; pinning it keeps GoReleaser from
+    # dropping to its own default of 6.
+    goarm: ['7']
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+
+# Bare binaries, not tarballs: the release assets stay the same files the
+# README already tells people to download.
+archives:
+  - formats: [binary]
+    name_template: '{{ .Binary }}-{{ .Os }}-{{ .Arch }}'
+
+checksum:
+  name_template: SHA256SUMS.txt
+
+# Release notes grouped by conventional commit type. Anything that is not
+# feat/fix/perf lands in Other; docs, tests and chores are dropped.
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^docs(\(.+\))?!?:'
+      - '^test(\(.+\))?!?:'
+      - '^chore(\(.+\))?!?:'
+      - '^ci(\(.+\))?!?:'
+      - '^style(\(.+\))?!?:'
+      - '^refactor(\(.+\))?!?:'
+      - '^Merge '
+
+# Pinned instead of inferred from the git remote, so `goreleaser check` and the
+# local snapshot work in a clone that has no origin.
+release:
+  github:
+    owner: d0whc3r
+    name: tailscale-socks

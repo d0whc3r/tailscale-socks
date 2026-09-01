@@ -54,6 +54,13 @@ type Node struct {
 	lc       *local.Client
 	dns      *dns.Manager // nil if the DNS subsystem is unavailable
 	stateDir string
+
+	// dialTS and lookupIP are the two seams DialContext routes through, set
+	// by Start to tsnet's own dialer and this node's resolver. Neither needs
+	// to be a field for the program to work; they are what lets a test drive
+	// the routing below without a tailnet.
+	dialTS   func(ctx context.Context, network, addr string) (net.Conn, error)
+	lookupIP func(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
 // DefaultStateDir returns the directory holding the login for a given node
@@ -116,6 +123,8 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	}
 
 	n := &Node{ts: ts, lc: lc, stateDir: stateDir}
+	// LookupIP reads n.dns at call time, so taking it here is safe.
+	n.dialTS, n.lookupIP = ts.Dial, n.LookupIP
 	if mgr, ok := ts.Sys().DNSManager.GetOK(); ok {
 		n.dns = mgr
 	}
@@ -136,7 +145,11 @@ func closeStarted(ts *tsnet.Server) {
 	}
 }
 
-func (n *Node) applyPrefs(ctx context.Context, cfg Config, st *ipnstate.Status) error {
+// prefsFor maps cfg onto the preferences to send to the node. Every field this
+// program owns is masked, or EditPrefs would keep the value from the last run
+// and the flag would do nothing. It is split from applyPrefs so the mapping can
+// be tested against a hand-built status, without a tailnet.
+func prefsFor(cfg Config, st *ipnstate.Status) (*ipn.MaskedPrefs, error) {
 	mp := &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			RouteAll:               cfg.AcceptRoutes,
@@ -148,6 +161,14 @@ func (n *Node) applyPrefs(ctx context.Context, cfg Config, st *ipnstate.Status) 
 		ExitNodeAllowLANAccessSet: true,
 	}
 	if err := setExitNode(mp, cfg.ExitNode, st); err != nil {
+		return nil, err
+	}
+	return mp, nil
+}
+
+func (n *Node) applyPrefs(ctx context.Context, cfg Config, st *ipnstate.Status) error {
+	mp, err := prefsFor(cfg, st)
+	if err != nil {
 		return err
 	}
 	if _, err := n.lc.EditPrefs(ctx, mp); err != nil {
@@ -168,17 +189,17 @@ func (n *Node) DialContext(ctx context.Context, network, addr string) (net.Conn,
 		return nil, err
 	}
 	if _, err := netip.ParseAddr(host); err == nil {
-		return n.ts.Dial(ctx, network, addr)
+		return n.dialTS(ctx, network, addr)
 	}
-	ips, err := n.LookupIP(ctx, host)
+	ips, err := n.lookupIP(ctx, host)
 	if err != nil || len(ips) == 0 {
 		// Fall back to tsnet's own resolution (netmap names, then the host
 		// resolver) rather than failing outright.
-		return n.ts.Dial(ctx, network, addr)
+		return n.dialTS(ctx, network, addr)
 	}
 	var errs []error
 	for _, ip := range ips {
-		conn, err := n.ts.Dial(ctx, network, net.JoinHostPort(ip.String(), port))
+		conn, err := n.dialTS(ctx, network, net.JoinHostPort(ip.String(), port))
 		if err == nil {
 			return conn, nil
 		}

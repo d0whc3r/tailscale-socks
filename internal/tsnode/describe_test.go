@@ -153,3 +153,13 @@ func TestDescribeIsOneFactPerLine(t *testing.T) {
 		}
 	}
 }
+
+// An exit node that is no longer a peer still has to print as something: the
+// summary falls back to the raw node ID rather than an empty field.
+func TestPeerNameFallsBackToTheID(t *testing.T) {
+	t.Parallel()
+
+	if got := peerName(testStatus(), "nosuchnode"); got != "nosuchnode" {
+		t.Errorf("peerName(unknown) = %q, want the raw ID", got)
+	}
+}

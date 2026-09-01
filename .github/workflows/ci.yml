@@ -21,6 +21,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # zsh is not on the runner image, and the packaged bats is older than
+      # the 1.5.0 the suite needs. Pinned to the version the tests were
+      # written against, like every other tool here.
+      - name: shell toolchain
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+          git clone --depth 1 --branch v1.14.0 https://github.com/bats-core/bats-core.git /tmp/bats-core
+          sudo /tmp/bats-core/install.sh /usr/local
       - run: make check
       - run: make build
       # Coverage lands in the run summary, so every push and pull request shows
@@ -50,9 +58,10 @@ jobs:
           cache: true
       - run: make vuln
 
-  # Tag push only: the same matrix `make release` builds locally, attached to
-  # the GitHub release. Gated on `check`, not `vuln`: govulncheck needs the
-  # network and must not block a tag.
+  # Tag push only: GoReleaser builds the matrix in .goreleaser.yaml, writes
+  # SHA256SUMS.txt and publishes the release with notes grouped by conventional
+  # commit type. Gated on `check`, not `vuln`: govulncheck needs the network and
+  # must not block a tag.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: check
@@ -60,16 +69,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Full history: GoReleaser reads the previous tag to build the changelog,
+      # and the version in the binary comes from the tag via ReadBuildInfo.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - run: make release
-      - name: checksums
-        working-directory: dist
-        run: sha256sum tailscale-socks-* > SHA256SUMS.txt
-      - name: publish
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          GITHUB_TOKEN: ${{ github.token }}
