@@ -116,10 +116,31 @@ if [ ! -e "$env_file" ]; then
     die 'cannot create the initial environment file'
 fi
 
+# The helpers are zsh, so ~/.zshrc is the only file worth touching. ZDOTDIR
+# moves it, when the user has set one.
+zshrc=${ZDOTDIR:-$HOME}/.zshrc
+helper=$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh
+# $HOME left unexpanded when the helper lives under it, so the line survives a
+# home directory that moves or gets renamed.
+case $helper in
+  "$HOME"/*) source_line="source \"\$HOME${helper#"$HOME"}\"" ;;
+  *) source_line="source \"$helper\"" ;;
+esac
+
+# Matched on the path alone, not on the whole line: a hand-edited or
+# deliberately commented-out source counts as present and is left as it is.
+if [ -e "$zshrc" ] && grep -qF 'contrib/tailscale-socks.zsh' "$zshrc"; then
+  zshrc_state='already sources the helpers'
+else
+  printf '\n# tailscale-socks\n%s\n' "$source_line" >> "$zshrc" ||
+    die "cannot write $zshrc"
+  zshrc_state='source line added'
+fi
+
 printf 'binary:   %s\n' "$TSPROXY_BIN_DIR/$bin"
-printf 'helpers:  %s\n' "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh"
+printf 'helpers:  %s\n' "$helper"
 printf 'config:   %s\n' "$env_file"
-printf 'source:   %s\n' "$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh"
+printf 'zshrc:    %s (%s)\n' "$zshrc" "$zshrc_state"
 
 case ":$PATH:" in
   *":$TSPROXY_BIN_DIR:"*) ;;

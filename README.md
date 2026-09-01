@@ -44,12 +44,15 @@ tailscale-socks upgrade
 
 ## 2. Load the shell helpers
 
-Add this to `~/.zshrc`, the same line on all three platforms:
+The installer already added this line to `~/.zshrc` — or to `$ZDOTDIR/.zshrc`, when you have one — so open a new shell, or `source ~/.zshrc`:
 
 ```sh
 source "$HOME/.local/share/tailscale-socks/contrib/tailscale-socks.zsh"
 ```
- The installer already wrote `~/.tailscale/.env` for you, with every line commented out, so an untouched copy keeps the defaults — edit it when you want to change one.
+
+It only writes the line when there is none: a commented-out one counts, so a line you disabled stays disabled, and running the installer twice does not add it twice.
+
+It also wrote `~/.tailscale/.env` for you, with every line commented out, so an untouched copy keeps the defaults — edit it when you want to change one.
 
 `tailscale-socks upgrade` refreshes that helper along with the binary, and writes the release's template to `~/.tailscale/.env.example`. Your `~/.tailscale/.env` is never touched: it is yours, and it may hold `TS_AUTHKEY`.
 

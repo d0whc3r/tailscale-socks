@@ -82,6 +82,60 @@ stub_uname() {
   grep -q 'windows backend' "$TSPROXY_SHARE_DIR/contrib/platform/windows.zsh"
 }
 
+@test "installer writes the source line into a missing .zshrc" {
+  stub_uname Darwin
+
+  run "$installer"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c . "$HOME/.zshrc")" -eq 2 ]
+  grep -qF 'source "$HOME/share/tailscale-socks/contrib/tailscale-socks.zsh"' "$HOME/.zshrc"
+  [[ "$output" == *"source line added"* ]]
+}
+
+@test "installer appends to a .zshrc it did not write" {
+  stub_uname Darwin
+  printf 'export EDITOR=vi\n' > "$HOME/.zshrc"
+
+  run "$installer"
+  [ "$status" -eq 0 ]
+  [ "$(head -1 "$HOME/.zshrc")" = 'export EDITOR=vi' ]
+  grep -qF 'contrib/tailscale-socks.zsh' "$HOME/.zshrc"
+}
+
+@test "installer leaves a .zshrc that already sources the helpers" {
+  stub_uname Darwin
+  # Commented out on purpose: someone who disabled the line does not want it
+  # back on the next install.
+  printf '# source "$HOME/elsewhere/contrib/tailscale-socks.zsh"\n' > "$HOME/.zshrc"
+  before=$(cat "$HOME/.zshrc")
+
+  run "$installer"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$HOME/.zshrc")" = "$before" ]
+  [[ "$output" == *"already sources the helpers"* ]]
+}
+
+@test "installer follows ZDOTDIR" {
+  stub_uname Darwin
+  export ZDOTDIR="$BATS_TEST_TMPDIR/zdot"
+  mkdir -p "$ZDOTDIR"
+
+  run "$installer"
+  [ "$status" -eq 0 ]
+  grep -qF 'contrib/tailscale-socks.zsh' "$ZDOTDIR/.zshrc"
+  [ ! -e "$HOME/.zshrc" ]
+}
+
+@test "installer writes a full path for helpers outside the home directory" {
+  stub_uname Darwin
+  # Outside $HOME, which is this test's own temporary directory.
+  export TSPROXY_SHARE_DIR="$BATS_RUN_TMPDIR/elsewhere/tailscale-socks"
+
+  run "$installer"
+  [ "$status" -eq 0 ]
+  grep -qF "source \"$TSPROXY_SHARE_DIR/contrib/tailscale-socks.zsh\"" "$HOME/.zshrc"
+}
+
 @test "installer keeps an existing environment file" {
   stub_uname Darwin
   mkdir -p "$TSPROXY_ENV_DIR"

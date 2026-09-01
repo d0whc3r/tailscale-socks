@@ -1,6 +1,6 @@
 # Running it as a service
 
-`contrib/tailscale-socks.zsh` keeps a `tailscale-socks` node running in the background through the platform's own service manager: a **launchd** user agent on macOS, a **systemd** user unit on Linux, a **Task Scheduler** task on Windows. Source it from `~/.zshrc`:
+`contrib/tailscale-socks.zsh` keeps a `tailscale-socks` node running in the background through the platform's own service manager: a **launchd** user agent on macOS, a **systemd** user unit on Linux, a **Task Scheduler** task on Windows. The installer puts the line in `~/.zshrc` for you; by hand it is:
 
 ```sh
 source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
