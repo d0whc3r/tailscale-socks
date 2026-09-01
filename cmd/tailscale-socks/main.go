@@ -55,6 +55,10 @@ Examples:
   # What can this node see?
   tailscale-socks status
 
+  # What settings are in effect? (no tailnet, no login)
+  tailscale-socks config
+  tailscale-socks config socks5
+
   curl --socks5-hostname 127.0.0.1:1080 http://peer.tailnet.ts.net/
   curl --proxy http://127.0.0.1:8080    http://peer.tailnet.ts.net/
   dig @127.0.0.1 -p 5354 peer.tailnet.ts.net`
@@ -62,6 +66,7 @@ Examples:
 type cli struct {
 	Run     runCmd           `cmd:"" default:"withargs" help:"Run the proxies (default command)."`
 	Status  statusCmd        `cmd:"" help:"Join the tailnet and print what this node can reach."`
+	Config  configCmd        `cmd:"" help:"Print the resolved configuration, without joining the tailnet."`
 	Version kong.VersionFlag `short:"V" env:"-" help:"Print the version and exit."`
 }
 
@@ -97,54 +102,41 @@ func (f nodeFlags) config(logf func(string, ...any)) tsnode.Config {
 	return cfg
 }
 
-type runCmd struct {
+// listenFlags are the local front doors, shared by run and config.
+type listenFlags struct {
+	// The env tag on Socks5 is not redundant: kong.DefaultEnvars splits
+	// "socks5" at the letter/digit boundary and would derive
+	// TSPROXY_SOCKS_5. Removing it renames the documented variable.
 	Socks5 string `name:"socks5" short:"s" env:"TSPROXY_SOCKS5" default:"127.0.0.1:1080" help:"SOCKS5 listen address; empty disables it."`
 	HTTP   string `name:"http" short:"p" default:"127.0.0.1:8080" help:"HTTP proxy listen address; empty disables it."`
 	DNS    string `name:"dns" short:"d" default:"127.0.0.1:5354" help:"DNS server listen address (UDP and TCP); empty disables it."`
+}
 
-	nodeFlags `embed:""`
+type runCmd struct {
+	listenFlags `embed:""`
+	nodeFlags   `embed:""`
 }
 
 func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
 	if c.Socks5 == "" && c.HTTP == "" && c.DNS == "" {
-		return fmt.Errorf("nothing to serve: --socks5, --http and --dns are all empty")
+		return errors.New("nothing to serve: --socks5, --http and --dns are all empty")
 	}
 	if c.DNS != "" && !c.AcceptDns {
-		return fmt.Errorf("--dns needs the tailnet DNS config; drop --no-accept-dns")
-	}
-	// Check the addresses before joining the tailnet, so a typo fails fast.
-	for _, a := range []struct{ flag, addr string }{{"--socks5", c.Socks5}, {"--http", c.HTTP}, {"--dns", c.DNS}} {
-		if a.addr == "" {
-			continue
-		}
-		if _, _, err := net.SplitHostPort(a.addr); err != nil {
-			return fmt.Errorf("%s %q: %w", a.flag, a.addr, err)
-		}
+		return errors.New("--dns needs the tailnet DNS config; drop --no-accept-dns")
 	}
 
-	node, err := tsnode.Start(ctx, c.config(logger.Printf))
-	if err != nil {
-		return err
-	}
-	defer node.Close()
-
-	if summary, err := node.Describe(ctx); err != nil {
-		logger.Printf("describing node: %v", err)
-	} else {
-		fmt.Print(summary)
-	}
-
-	// Buffered for every server below, so none of them blocks on the send
-	// once the first error has been read.
-	errc := make(chan error, 4)
+	// Bind every listener before joining the tailnet: a typo, a busy port or
+	// an address this machine does not own then costs nothing, instead of a
+	// login. The sockets only queue connections until the servers start.
+	var socks5Ln, httpLn, dnsLn net.Listener
+	var dnsPC net.PacketConn
 	if c.Socks5 != "" {
 		ln, err := net.Listen("tcp", c.Socks5)
 		if err != nil {
 			return fmt.Errorf("socks5: %w", err)
 		}
 		defer ln.Close()
-		logger.Printf("SOCKS5 proxy on %s", ln.Addr())
-		go func() { errc <- proxy.ServeSOCKS5(ln, node.DialContext, prefixed(logger, "socks5: ")) }()
+		socks5Ln = ln
 	}
 	if c.HTTP != "" {
 		ln, err := net.Listen("tcp", c.HTTP)
@@ -152,18 +144,9 @@ func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
 			return fmt.Errorf("http: %w", err)
 		}
 		defer ln.Close()
-		srv := &http.Server{
-			Handler: proxy.NewHTTPProxy(node.DialContext),
-			// Only bounds the request header; CONNECT tunnels stay open.
-			ReadHeaderTimeout: 10 * time.Second,
-		}
-		logger.Printf("HTTP proxy on %s", ln.Addr())
-		go func() { errc <- srv.Serve(ln) }()
+		httpLn = ln
 	}
 	if c.DNS != "" {
-		if !node.HasDNS() {
-			return tsnode.ErrNoDNS
-		}
 		pc, err := net.ListenPacket("udp", c.DNS)
 		if err != nil {
 			return fmt.Errorf("dns/udp: %w", err)
@@ -174,9 +157,44 @@ func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
 			return fmt.Errorf("dns/tcp: %w", err)
 		}
 		defer ln.Close()
-		logger.Printf("DNS server on %s (udp+tcp)", ln.Addr())
-		go func() { errc <- proxy.ServeDNSUDP(ctx, pc, node, prefixed(logger, "dns: ")) }()
-		go func() { errc <- proxy.ServeDNSTCP(ln, node) }()
+		dnsPC, dnsLn = pc, ln
+	}
+
+	node, err := tsnode.Start(ctx, c.config(logger.Printf))
+	if err != nil {
+		return err
+	}
+	defer node.Close()
+
+	if dnsLn != nil && !node.HasDNS() {
+		return tsnode.ErrNoDNS
+	}
+	if summary, err := node.Describe(ctx); err != nil {
+		logger.Printf("describing node: %v", err)
+	} else {
+		fmt.Print(summary)
+	}
+
+	// Buffered for every server below, so none of them blocks on the send
+	// once the first error has been read.
+	errc := make(chan error, 4)
+	if socks5Ln != nil {
+		logger.Printf("SOCKS5 proxy on %s", socks5Ln.Addr())
+		go func() { errc <- proxy.ServeSOCKS5(socks5Ln, node.DialContext, prefixed(logger, "socks5: ")) }()
+	}
+	if httpLn != nil {
+		srv := &http.Server{
+			Handler: proxy.NewHTTPProxy(node.DialContext),
+			// Only bounds the request header; CONNECT tunnels stay open.
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		logger.Printf("HTTP proxy on %s", httpLn.Addr())
+		go func() { errc <- srv.Serve(httpLn) }()
+	}
+	if dnsLn != nil {
+		logger.Printf("DNS server on %s (udp+tcp)", dnsLn.Addr())
+		go func() { errc <- proxy.ServeDNSUDP(ctx, dnsPC, node, prefixed(logger, "dns: ")) }()
+		go func() { errc <- proxy.ServeDNSTCP(dnsLn, node) }()
 	}
 
 	select {

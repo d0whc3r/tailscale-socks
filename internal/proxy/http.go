@@ -5,12 +5,24 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // NewHTTPProxy returns a forward-proxy handler: CONNECT tunnels and plain
 // absolute-URI requests are both sent over dial.
+// idleConnTimeout matches net/http's own default. Without it the zero-value
+// Transport keeps every pooled tailnet connection open for the life of the
+// process.
+const idleConnTimeout = 90 * time.Second
+
 func NewHTTPProxy(dial DialFunc) http.Handler {
-	return &httpProxy{dial: dial, transport: &http.Transport{DialContext: dial}}
+	return &httpProxy{
+		dial: dial,
+		transport: &http.Transport{
+			DialContext:     dial,
+			IdleConnTimeout: idleConnTimeout,
+		},
+	}
 }
 
 type httpProxy struct {

@@ -29,7 +29,7 @@ type Config struct {
 	AuthKey  string // optional auth key for unattended login
 
 	// ExitNode is "", "off", "auto", "auto:<expr>", a peer name or a
-	// Tailscale IP. See ExitNodeHelp.
+	// Tailscale IP. See setExitNode.
 	ExitNode string
 	// ExitNodeAllowLAN keeps local subnets reachable while an exit node is in
 	// use.
@@ -156,16 +156,8 @@ func (n *Node) applyPrefs(ctx context.Context, cfg Config, st *ipnstate.Status) 
 	return nil
 }
 
-// StateDir is the directory where the node's login is persisted.
-func (n *Node) StateDir() string { return n.stateDir }
-
 // Close disconnects the node from the tailnet.
 func (n *Node) Close() error { return n.ts.Close() }
-
-// Status returns the current tailnet status, including peers.
-func (n *Node) Status(ctx context.Context) (*ipnstate.Status, error) {
-	return n.lc.Status(ctx)
-}
 
 // DialContext connects to addr over the tailnet. Host names are resolved with
 // the tailnet DNS configuration (MagicDNS and split DNS included) so that
@@ -195,31 +187,38 @@ func (n *Node) DialContext(ctx context.Context, network, addr string) (net.Conn,
 	return nil, fmt.Errorf("dial %s: %w", addr, errors.Join(errs...))
 }
 
-// TailscaleIPs reports the node's own tailnet addresses.
-func (n *Node) TailscaleIPs() (ip4, ip6 netip.Addr) { return n.ts.TailscaleIPs() }
-
-// ExitNodeHelp documents the accepted -exit-node values.
-const ExitNodeHelp = `off | auto | auto:<expr> | <peer-name> | <tailscale-ip>`
-
-// Describe writes a human-readable summary of the node and what it can reach.
+// Describe returns a human-readable summary of the node and what it can reach.
 func (n *Node) Describe(ctx context.Context) (string, error) {
-	st, err := n.Status(ctx)
+	st, err := n.lc.Status(ctx)
 	if err != nil {
 		return "", err
 	}
-	var b strings.Builder
-	self := st.Self
-	fmt.Fprintf(&b, "node:     %s (%s)\n", strings.TrimSuffix(self.DNSName, "."), st.BackendState)
-	fmt.Fprintf(&b, "addrs:    %s\n", joinAddrs(self.TailscaleIPs))
-	if st.CurrentTailnet != nil {
-		fmt.Fprintf(&b, "tailnet:  %s (MagicDNS suffix %s)\n", st.CurrentTailnet.Name, st.CurrentTailnet.MagicDNSSuffix)
-	}
-
 	prefs, err := n.lc.GetPrefs(ctx)
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintf(&b, "state:    %s\n", n.stateDir)
+	return describe(st, prefs, n.stateDir), nil
+}
+
+// describe formats the summary. It is split from Describe so that it can be
+// tested against a hand-built status, without a tailnet.
+func describe(st *ipnstate.Status, prefs *ipn.Prefs, stateDir string) string {
+	var b strings.Builder
+
+	// Self is nil until control has told the node who it is.
+	name, addrs := "unknown", "none"
+	if self := st.Self; self != nil {
+		name = strings.TrimSuffix(self.DNSName, ".")
+		if len(self.TailscaleIPs) > 0 {
+			addrs = joinAddrs(self.TailscaleIPs)
+		}
+	}
+	fmt.Fprintf(&b, "node:     %s (%s)\n", name, st.BackendState)
+	fmt.Fprintf(&b, "addrs:    %s\n", addrs)
+	if st.CurrentTailnet != nil {
+		fmt.Fprintf(&b, "tailnet:  %s (MagicDNS suffix %s)\n", st.CurrentTailnet.Name, st.CurrentTailnet.MagicDNSSuffix)
+	}
+	fmt.Fprintf(&b, "state:    %s\n", stateDir)
 	fmt.Fprintf(&b, "dns:      accept=%t\n", prefs.CorpDNS)
 	fmt.Fprintf(&b, "routes:   accept=%t\n", prefs.RouteAll)
 
@@ -252,7 +251,7 @@ func (n *Node) Describe(ctx context.Context) (string, error) {
 	if len(st.Health) > 0 {
 		writeList(&b, "health warnings", st.Health)
 	}
-	return b.String(), nil
+	return b.String()
 }
 
 func writeList(b *strings.Builder, title string, items []string) {

@@ -3,6 +3,11 @@ PKG     := ./cmd/tailscale-socks
 MODULE  := $(shell go list -m)
 DIST    := dist
 
+# Modules behind the go.mod `tool` block. Lazy `=`: only `make outdated` pays
+# for the extra `go list`.
+TOOL_MODULES = $(shell go list -f '{{.Module.Path}}' tool | sort -u)
+OUTDATED_FMT = {{if .Update}}{{.Path}} {{.Version}} -> {{.Update.Version}}{{end}}
+
 HOST_OS   := $(shell go env GOHOSTOS)
 HOST_ARCH := $(shell go env GOHOSTARCH)
 
@@ -17,7 +22,7 @@ PLATFORMS := \
 	linux/amd64 linux/arm64 linux/arm \
 	windows/amd64 windows/arm64
 
-.PHONY: all build run test vet fmt fmt-check lint check vuln release tidy clean
+.PHONY: all build run test vet fmt fmt-check lint check vuln outdated release tidy clean
 
 all: check build
 
@@ -68,8 +73,8 @@ test:
 vet:
 	go vet ./...
 
-# goimports and staticcheck are pinned in the go.mod `tool` block, so
-# `go tool` runs the exact versions with no separate install step.
+# goimports, staticcheck and govulncheck are pinned in the go.mod `tool`
+# block, so `go tool` runs the exact versions with no separate install step.
 
 # Rewrite files in place: gofmt plus import fixing/grouping.
 fmt:
@@ -88,7 +93,17 @@ check: lint test
 # Known vulnerabilities in the dependency tree. Kept out of `check`: it needs
 # the network and the vulnerability database.
 vuln:
-	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	go tool govulncheck ./...
+
+# Direct dependencies and pinned tools with a newer version. The `all` pattern
+# walks the whole transitive graph (tailscale.com alone pulls in ~1000
+# modules), so indirect entries are dropped; the tools are queried by module
+# path because go.mod records them as indirect too.
+outdated:
+	@out=$$( \
+		go list -m -u -f '{{if not .Indirect}}$(OUTDATED_FMT){{end}}' all; \
+		go list -m -u -f '$(OUTDATED_FMT)' $(TOOL_MODULES)); \
+	if [ -n "$$out" ]; then echo "$$out"; else echo "all dependencies current"; fi
 
 tidy:
 	go mod tidy

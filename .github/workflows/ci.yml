@@ -5,6 +5,9 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  # govulncheck has to catch advisories published after the last commit.
+  schedule:
+    - cron: '17 6 * * 1'
 
 permissions:
   contents: read

@@ -62,11 +62,13 @@ The test: every changed line traces directly to the request.
 make check     # goimports -l + go vet + staticcheck + go test -race ./...
 make build     # host binary; make release for the full matrix
 make vuln      # govulncheck; needs the network, so it is not part of check
+make outdated  # direct deps and pinned tools with a newer version; network too
 ```
 
-`make check` is the gate. Both `goimports` and `staticcheck` are pinned in the
-`tool` block of `go.mod` and run through `go tool` — never install them
-separately, never add a second linter config.
+`make check` is the gate. `goimports`, `staticcheck` and `govulncheck` are
+pinned in the `tool` block of `go.mod` and run through `go tool` — never
+install them separately, never `go run ...@latest`, never add a second linter
+config.
 
 Turn the task into something verifiable:
 
@@ -138,10 +140,10 @@ output.
 **Break one of these and the program is subtly wrong, not obviously broken.**
 
 - **Layering.** `cmd/` wires, `internal/tsnode` owns the tailnet, `internal/proxy` owns the wire protocols. `internal/proxy` must never import `internal/tsnode` — that separation is what makes the servers testable without a tailnet. `cmd/` holds no protocol logic.
-- **Flags are a three-place contract.** Adding or changing a flag means the kong struct tag, `.env.example` and the README table — all three, same change. Env vars are `TSPROXY_*` via `kong.DefaultEnvars`, except `TS_AUTHKEY` and `TS_CONTROL_URL`, which are Tailscale's own names: never rename them, never prefix them.
+- **Flags are a four-place contract.** Adding or changing a flag means the kong struct tag, `.env.example`, the README table and `configCmd.settings` — all four, same change. `TestFlagEnvVars` fails when the environment variable drifts. Env vars are `TSPROXY_*` via `kong.DefaultEnvars`, except `TS_AUTHKEY` and `TS_CONTROL_URL`, which are Tailscale's own names: never rename them, never prefix them.
 - **The state directory must not depend on the binary's name.** `tsnet`'s own default does, so renaming the binary would silently lose the login and register a second node. `DefaultStateDir` keys on the hostname only. State file stays `0600`, its directory `0700`.
 - **The proxies have no authentication.** Defaults bind `127.0.0.1` and stay that way. Never change a default to `0.0.0.0`, never add a "listen everywhere" convenience, never widen a bind without an explicit request — the failure mode is an open relay into someone's tailnet.
-- **Credentials never reach a log line.** `TS_AUTHKEY` and the contents of `tailscaled.state` are secrets: don't print them, don't echo them into an error, don't add them to `status` output.
+- **Credentials never reach a log line.** `TS_AUTHKEY` and the contents of `tailscaled.state` are secrets: don't print them, don't echo them into an error, don't add them to `status` or `config` output — `config` is made to be piped and eval'd.
 - **Names resolve on the tailnet side.** SOCKS5 hands the host name to the dialer unresolved on purpose; "fixing" the resolver to return a real IP breaks MagicDNS and split DNS for every client.
 - **Fail fast before joining.** Validate addresses and flag combinations before `tsnode.Start`, so a typo doesn't cost a tailnet login.
 - **Every listener is optional.** An empty address disables it; all three empty is an error. Keep new listeners to the same shape.

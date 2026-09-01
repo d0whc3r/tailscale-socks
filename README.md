@@ -21,6 +21,7 @@ Needs Go 1.27 or newer.
 make build          # or: go build -o tailscale-socks ./cmd/tailscale-socks
 make check          # gofmt + go vet + staticcheck + go test -race
 make vuln           # govulncheck over the dependency tree (needs network)
+make outdated       # direct dependencies with a newer version (needs network)
 make release        # static binaries for linux/darwin/windows into dist/
 ```
 
@@ -31,14 +32,16 @@ export TS_AUTHKEY=tskey-auth-...       # optional; otherwise a login URL is prin
 tailscale-socks --exit-node auto
 ```
 
-Two commands, `run` (the default, so it can be omitted) and `status`:
+Three commands, `run` (the default, so it can be omitted), `status` and
+`config`:
 
 ```sh
 tailscale-socks                        # same as: tailscale-socks run
 tailscale-socks status                 # join, print the summary, exit
+tailscale-socks config                 # print the settings; no tailnet, no login
 ```
 
-Both print a summary of what the node can reach:
+`run` and `status` print a summary of what the node can reach:
 
 ```
 node:     my-proxy.tailnet.ts.net (Running)
@@ -112,6 +115,120 @@ it does not apply to `go run`, which builds into a temporary directory.
 Two more variables are read by `tsnet` itself rather than by a flag:
 `TS_CONTROL_URL` points at a self-hosted control server (Headscale), and
 `TSNET_FORCE_LOGIN=1` makes an auth key apply to an already logged-in node.
+
+### Reading the configuration back
+
+`tailscale-socks config` walks the same chain and prints what it resolved to.
+It joins nothing and logs nothing in, so it is cheap to call from a shell:
+
+```sh
+$ tailscale-socks config
+TSPROXY_HOSTNAME='ts-proxy'
+TSPROXY_STATE_DIR='/Users/you/Library/Application Support/tailscale-socks/ts-proxy'
+TSPROXY_SOCKS5='127.0.0.1:1080'
+TSPROXY_HTTP='127.0.0.1:8080'
+TSPROXY_DNS='127.0.0.1:5354'
+TSPROXY_EXIT_NODE='off'
+TSPROXY_EXIT_NODE_ALLOW_LAN='false'
+TSPROXY_ACCEPT_ROUTES='true'
+TSPROXY_ACCEPT_DNS='true'
+TSPROXY_VERBOSE='false'
+```
+
+With a key it prints that value alone, unquoted, ready for `$(...)`:
+
+```sh
+$ tailscale-socks config socks5
+127.0.0.1:1080
+$ curl --socks5-hostname "$(tailscale-socks config socks5)" http://peer.tailnet.ts.net/
+$ eval "$(tailscale-socks config)"      # the whole set, quoted for the shell
+```
+
+The key is the flag name or its variable — `socks5` and `TSPROXY_SOCKS5` are
+the same key. Flags still apply, so `tailscale-socks config -e auto` answers
+"what would that run use?". An empty value means a disabled listener. The auth
+key is never printed: this output is made to be piped and logged.
+
+## Run it as a service
+
+`contrib/tailscale-socks.zsh` manages a background node through the platform's
+own service manager: a **launchd** user agent on macOS, a **systemd** user unit
+on Linux. Source it from `~/.zshrc`:
+
+```sh
+source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
+```
+
+| Function | What it does |
+|---|---|
+| `ts_install` | write the service, enable it for autostart, start it |
+| `ts_up` | start it |
+| `ts_down` | stop it |
+| `ts_restart` | stop, start |
+| `ts_status` | service state, listener probes, last node summary |
+| `ts_logs [-f\|N]` | read the log |
+| `ts_uninstall` | stop it and remove the service |
+| `ts_proxy on\|off` | send this shell's commands through the proxies |
+
+The service runs `tailscale-socks run` with no flags: configuration stays in
+`~/.tailscale/.env`, same as any other invocation. Edit it and `ts_restart`.
+
+The binary is taken from `$PATH` (symlinks resolved) at install time; override
+with `TS_SOCKS_BIN`. Move the binary and re-run `ts_install`. The login is not
+affected: the state directory keys on the hostname, not on the path.
+
+```
+macOS   ~/Library/LaunchAgents/tailscale-socks.plist   log: ~/Library/Logs/tailscale-socks.log
+Linux   ~/.config/systemd/user/tailscale-socks.service log: journalctl --user -u tailscale-socks
+```
+
+Both start at login. Only a crash restarts the node — `ts_down` stays down. On
+Linux, `loginctl enable-linger $USER` also starts it at boot, before login.
+
+`ts_status` does **not** run `tailscale-socks status`: that joins the tailnet
+with the same state directory and node key as the running service, and one
+login cannot back two nodes. It reports the service state, probes each enabled
+listener, and prints the summary the running process wrote when it came up:
+
+```
+service:  running (pid 55012)
+socks5:   127.0.0.1:1080 up
+http:     127.0.0.1:8080 up
+dns:      disabled
+
+node:     my-proxy.tailnet.ts.net (Running)
+...
+exit node: gateway.tailnet.ts.net online=true
+```
+
+For a live summary, stop the service first: `ts_down && tailscale-socks status`.
+
+### Sending the shell through the proxy
+
+`ts_proxy on` exports the proxy variables in the current shell, so anything
+started from it reaches the tailnet without per-command flags. `ts_proxy off`
+unsets them; `ts_proxy` on its own prints what is set. No other shell is
+affected.
+
+```sh
+ts_proxy on
+curl http://peer.tailnet.ts.net/      # no --proxy, no --socks5-hostname
+ts_proxy off
+```
+
+| Variable | Value |
+|---|---|
+| `http_proxy`, `https_proxy` (and the uppercase pair) | `http://` + the `--http` address |
+| `ALL_PROXY`, `all_proxy` | `socks5h://` + the `--socks5` address |
+| `NO_PROXY`, `no_proxy` | `localhost,127.0.0.1,::1` |
+
+A disabled listener sets no variable, and `ts_proxy on` warns when nothing is
+listening on an enabled one. The bypass list keeps local ports local: without
+it a request to `127.0.0.1` would leave through the tailnet and arrive at
+another machine.
+
+`ssh` and anything else that ignores these variables still needs its own
+configuration — for ssh, a `ProxyCommand` through the SOCKS5 port.
 
 ## Login state
 
@@ -191,7 +308,8 @@ cmd/tailscale-socks   CLI (kong): flags, help, .env loading, wiring
 internal/tsnode       the Tailscale node: prefs, exit node, DNS, dialing
 internal/proxy        SOCKS5, HTTP and DNS servers over a tailnet dialer
 .env.example          every variable, with its default
-Makefile              build, check, vuln, release
+contrib/              zsh helpers, launchd agent and systemd unit
+Makefile              build, check, vuln, outdated, release
 ```
 
 Dependencies: [`tailscale.com`](https://tailscale.com) (tsnet),
