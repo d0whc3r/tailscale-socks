@@ -1,48 +1,79 @@
 # tailscale-socks
 
-A userspace Tailscale node (`tsnet`) that exposes your tailnet to local apps
-through three front doors:
+Reach your tailnet from any local app, without installing Tailscale on the
+machine.
+
+`tailscale-socks` joins your tailnet as a **userspace** node — WireGuard runs
+in-process, so there is no `tailscaled`, no root and no TUN device — and opens
+three local front doors onto it:
 
 | Front door | Default | What it gives you |
 |---|---|---|
 | SOCKS5 | `127.0.0.1:1080` | TCP into the tailnet, names resolved on the tailnet side |
 | HTTP proxy | `127.0.0.1:8080` | `CONNECT` tunnels and plain proxied requests |
-| DNS | `127.0.0.1:5354` | MagicDNS, split DNS and exit-node DNS over UDP and TCP |
+| DNS | `127.0.0.1:5354` | MagicDNS, split DNS and exit-node DNS, over UDP and TCP |
 
-No `tailscaled`, no root, no TUN device — WireGuard runs in-process. Traffic can
-leave through an **exit node** (`--exit-node auto` lets Tailscale pick) and reach
-**subnet routers** (on by default).
+Outbound traffic can leave through an **exit node** (`--exit-node auto` lets
+Tailscale pick), and **subnet routers** are reachable by default.
 
-## Build
+Good for a work laptop you would rather not enroll, a container or CI job that
+needs one tailnet service, or a shell that should talk to the tailnet only when
+you say so.
 
-Needs Go 1.27 or newer.
+## Install
+
+Prebuilt binaries for macOS, Linux and Windows are attached to each tagged
+release. Or build it yourself, with Go 1.27 or newer:
 
 ```sh
-make build          # or: go build -o tailscale-socks ./cmd/tailscale-socks
-make check          # gofmt + go vet + staticcheck + go test -race
-make cover          # per-function statement coverage; cover-html for a browser
-make vuln           # govulncheck over the dependency tree (needs network)
-make outdated       # direct dependencies with a newer version (needs network)
-make release        # static binaries for linux/darwin/windows into dist/
+git clone https://github.com/d0whc3r/tailscale-socks && cd tailscale-socks
+make build          # -> ./tailscale-socks
 ```
 
-## Run
+Put the binary anywhere on your `$PATH`. It is a single static file with no
+runtime dependencies.
+
+## Quick start
 
 ```sh
-export TS_AUTHKEY=tskey-auth-...       # optional; otherwise a login URL is printed
+tailscale-socks
+```
+
+The first run prints a login URL. Approve it in the browser and the node
+appears in your tailnet as `ts-proxy`; the login is saved, so later runs start
+straight away. For unattended machines, use an auth key instead:
+
+```sh
+export TS_AUTHKEY=tskey-auth-...
 tailscale-socks --exit-node auto
 ```
 
-Three commands, `run` (the default, so it can be omitted), `status` and
-`config`:
+Then send something through it:
 
 ```sh
-tailscale-socks                        # same as: tailscale-socks run
-tailscale-socks status                 # join, print the summary, exit
-tailscale-socks config                 # print the settings; no tailnet, no login
+curl --socks5-hostname 127.0.0.1:1080 http://peer.tailnet.ts.net/
+curl --proxy http://127.0.0.1:8080    http://peer.tailnet.ts.net/
+dig @127.0.0.1 -p 5354 peer.tailnet.ts.net
+ALL_PROXY=socks5h://127.0.0.1:1080 some-app
 ```
 
-`run` and `status` print a summary of what the node can reach:
+Use `socks5h://` (curl: `--socks5-hostname`), **not** `socks5://`. Names must be
+resolved by the proxy, on the tailnet, not by your host. Once a name reaches the
+proxy it is resolved with the tailnet DNS configuration, so MagicDNS names,
+split-DNS domains and — when an exit node is in use — that node's resolvers all
+work. Public names fall back to normal resolution when the tailnet DNS has no
+answer.
+
+## Commands
+
+```sh
+tailscale-socks                 # run the proxies (the default command)
+tailscale-socks run             # the same thing, spelled out
+tailscale-socks status          # join, print what this node can reach, exit
+tailscale-socks config          # print the resolved settings; no tailnet, no login
+```
+
+`run` and `status` print the same summary:
 
 ```
 node:     my-proxy.tailnet.ts.net (Running)
@@ -60,7 +91,16 @@ subnet routers:
 
 Full help: `tailscale-socks --help`, `tailscale-socks run --help`.
 
-## Flags
+## Configuration
+
+Settings come from, in decreasing priority:
+
+1. the command line
+2. the environment
+3. `.env` next to the binary
+4. `~/.tailscale/.env`
+
+### Flags
 
 Every flag has a one-letter alias and an environment variable. Long names take
 `--`, aliases take `-`.
@@ -81,22 +121,21 @@ Every flag has a one-letter alias and an environment variable. Long names take
 | `--version` | `-V` | | | print the version |
 | `--help` | `-h` | | | show help |
 
+Every listener is optional; an empty address disables it. All three empty is an
+error.
+
 ```sh
-tailscale-socks -e auto -s 127.0.0.1:1080 -p '' -d ''
+tailscale-socks -e auto -s 127.0.0.1:1080 -p '' -d ''    # SOCKS5 only
 ```
 
 Aliases take their value after a space (`-s 127.0.0.1:1080`); the `=` form
 (`-s=...`) is a long-flag thing, so use `--socks5=` to pass an empty value.
 
-## Configuration files
+Two more variables are read by Tailscale itself rather than by a flag:
+`TS_CONTROL_URL` points at a self-hosted control server (Headscale), and
+`TSNET_FORCE_LOGIN=1` makes an auth key apply to an already logged-in node.
 
-Every flag can also come from a `.env` file, read from two places:
-
-1. `.env` in the directory of the executable
-2. `~/.tailscale/.env`
-
-The full order is **command line > environment > executable's `.env` >
-`~/.tailscale/.env`**. Missing files are skipped; loaded ones are logged.
+### `.env` files
 
 `.env.example` documents every variable with its default:
 
@@ -108,14 +147,11 @@ $EDITOR ~/.tailscale/.env
 ```
 
 Keep these files at `0600`: they can hold `TS_AUTHKEY`. The program warns when
-one is readable by other users.
+one is readable by other users. Missing files are skipped; loaded ones are
+logged.
 
-"Next to the executable" is the real binary's directory (symlinks resolved), so
-it does not apply to `go run`, which builds into a temporary directory.
-
-Two more variables are read by `tsnet` itself rather than by a flag:
-`TS_CONTROL_URL` points at a self-hosted control server (Headscale), and
-`TSNET_FORCE_LOGIN=1` makes an auth key apply to an already logged-in node.
+"Next to the binary" is the real binary's directory, symlinks resolved — so it
+does not apply to `go run`, which builds into a temporary directory.
 
 ### Reading the configuration back
 
@@ -136,7 +172,7 @@ TSPROXY_ACCEPT_DNS='true'
 TSPROXY_VERBOSE='false'
 ```
 
-With a key it prints that value alone, unquoted, ready for `$(...)`:
+With a key it prints that one value, unquoted, ready for `$(...)`:
 
 ```sh
 $ tailscale-socks config socks5
@@ -149,115 +185,6 @@ The key is the flag name or its variable — `socks5` and `TSPROXY_SOCKS5` are
 the same key. Flags still apply, so `tailscale-socks config -e auto` answers
 "what would that run use?". An empty value means a disabled listener. The auth
 key is never printed: this output is made to be piped and logged.
-
-## Run it as a service
-
-`contrib/tailscale-socks.zsh` manages a background node through the platform's
-own service manager: a **launchd** user agent on macOS, a **systemd** user unit
-on Linux. Source it from `~/.zshrc`:
-
-```sh
-source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
-```
-
-| Function | What it does |
-|---|---|
-| `ts_install` | write the service, enable it for autostart, start it |
-| `ts_up` | start it |
-| `ts_down` | stop it |
-| `ts_restart` | stop, start |
-| `ts_status` | service state, listener probes, last node summary |
-| `ts_logs [-f\|N]` | read the log |
-| `ts_uninstall` | stop it and remove the service |
-| `ts_proxy on\|off` | send this shell's commands through the proxies |
-
-The service runs `tailscale-socks run` with no flags: configuration stays in
-`~/.tailscale/.env`, same as any other invocation. Edit it and `ts_restart`.
-
-The binary is taken from `$PATH` (symlinks resolved) at install time; override
-with `TS_SOCKS_BIN`. Move the binary and re-run `ts_install`. The login is not
-affected: the state directory keys on the hostname, not on the path.
-
-```
-macOS   ~/Library/LaunchAgents/tailscale-socks.plist   log: ~/Library/Logs/tailscale-socks.log
-Linux   ~/.config/systemd/user/tailscale-socks.service log: journalctl --user -u tailscale-socks
-```
-
-Both start at login. Only a crash restarts the node — `ts_down` stays down. On
-Linux, `loginctl enable-linger $USER` also starts it at boot, before login.
-
-`ts_status` does **not** run `tailscale-socks status`: that joins the tailnet
-with the same state directory and node key as the running service, and one
-login cannot back two nodes. It reports the service state, probes each enabled
-listener, and prints the summary the running process wrote when it came up:
-
-```
-service:  running (pid 55012)
-socks5:   127.0.0.1:1080 up
-http:     127.0.0.1:8080 up
-dns:      disabled
-
-node:     my-proxy.tailnet.ts.net (Running)
-...
-exit node: gateway.tailnet.ts.net online=true
-```
-
-For a live summary, stop the service first: `ts_down && tailscale-socks status`.
-
-### Sending the shell through the proxy
-
-`ts_proxy on` exports the proxy variables in the current shell, so anything
-started from it reaches the tailnet without per-command flags. `ts_proxy off`
-unsets them; `ts_proxy` on its own prints what is set. No other shell is
-affected.
-
-```sh
-ts_proxy on
-curl http://peer.tailnet.ts.net/      # no --proxy, no --socks5-hostname
-ts_proxy off
-```
-
-| Variable | Value |
-|---|---|
-| `http_proxy`, `https_proxy` (and the uppercase pair) | `http://` + the `--http` address |
-| `ALL_PROXY`, `all_proxy` | `socks5h://` + the `--socks5` address |
-| `NO_PROXY`, `no_proxy` | `localhost,127.0.0.1,::1` |
-
-A disabled listener sets no variable, and `ts_proxy on` warns when nothing is
-listening on an enabled one. The bypass list keeps local ports local: without
-it a request to `127.0.0.1` would leave through the tailnet and arrive at
-another machine.
-
-`ssh` and anything else that ignores these variables still needs its own
-configuration — for ssh, a `ProxyCommand` through the SOCKS5 port.
-
-## Login state
-
-The login is stored in `tailscaled.state` (file `0600`, directory `0700`) under:
-
-```
-<user config dir>/tailscale-socks/<hostname>
-# macOS: ~/Library/Application Support/tailscale-socks/ts-proxy
-# Linux: ~/.config/tailscale-socks/ts-proxy
-```
-
-Override it with `--state-dir`. The path deliberately does **not** depend on the
-binary's name — tsnet's own default is `tsnet-<executable name>`, so renaming or
-moving the binary would silently lose the login and register a second node.
-
-Consequences worth knowing:
-
-- One login per `--hostname`. Two hostnames are two nodes with two state
-  directories; reusing a hostname reuses its login.
-- `TS_AUTHKEY` is only used when the node is not logged in yet. Once state
-  exists it is ignored (tsnet logs that it is ignoring it), unless
-  `TSNET_FORCE_LOGIN=1` is set.
-- Delete the directory to force a fresh login; the old node stays in the tailnet
-  until you remove it from the admin console.
-- The state file holds the node's private keys. Back it up like a secret, or
-  not at all.
-
-`tailscale-socks status` prints the directory in use as `state:`.
 
 ## Exit nodes
 
@@ -272,27 +199,45 @@ tailscale-socks --exit-node off         # none (default)
 
 `tailscale-socks status` lists the peers that are advertising an exit node.
 
-## Use it
+## Login state
 
-```sh
-curl --socks5-hostname 127.0.0.1:1080 http://peer.tailnet.ts.net/
-curl --proxy http://127.0.0.1:8080    http://peer.tailnet.ts.net/
-dig @127.0.0.1 -p 5354 peer.tailnet.ts.net
-ALL_PROXY=socks5h://127.0.0.1:1080 some-app
+The login is stored in `tailscaled.state` (file `0600`, directory `0700`) under:
+
+```
+<user config dir>/tailscale-socks/<hostname>
+# macOS: ~/Library/Application Support/tailscale-socks/ts-proxy
+# Linux: ~/.config/tailscale-socks/ts-proxy
 ```
 
-Use `socks5h://` (curl: `--socks5-hostname`), not `socks5://`: names must be
-resolved by the proxy, on the tailnet, not by your host. Once a name reaches the
-proxy it is resolved with the tailnet DNS configuration, so MagicDNS names,
-split-DNS domains and — when an exit node is in use — that node's resolvers all
-work. Public names fall back to tsnet's own resolution if the tailnet DNS has no
-answer.
+Override it with `--state-dir`. The path deliberately does **not** depend on the
+binary's name, so renaming or moving the binary keeps the login.
 
-## Not included
+Worth knowing:
 
-This node consumes the tailnet; it does not offer anything to it. There is no
-route or exit-node advertising, no Taildrop, no `serve`/`funnel`, and no
-Tailscale SSH.
+- One login per `--hostname`. Two hostnames are two nodes with two state
+  directories; reusing a hostname reuses its login.
+- `TS_AUTHKEY` is only used when the node is not logged in yet. Once state
+  exists it is ignored, unless `TSNET_FORCE_LOGIN=1` is set.
+- Delete the directory to force a fresh login; the old node stays in the tailnet
+  until you remove it from the admin console.
+- The state file holds the node's private keys. Back it up like a secret, or
+  not at all.
+
+`tailscale-socks status` prints the directory in use as `state:`.
+
+## Run it in the background
+
+`contrib/tailscale-socks.zsh` installs the node as a **launchd** user agent on
+macOS or a **systemd** user unit on Linux, and adds a few shell functions:
+
+```sh
+source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
+ts_install          # write the service, enable autostart, start it
+ts_status           # service state, listener probes, last node summary
+ts_proxy on         # send this shell's commands through the proxies
+```
+
+See [docs/service.md](docs/service.md) for the full reference.
 
 ## Security
 
@@ -300,21 +245,20 @@ The proxies and the DNS server have **no authentication**. They bind to
 `127.0.0.1` by default; binding them to `0.0.0.0` turns the machine into an open
 relay into your tailnet for anyone who can reach the port.
 
+The auth key and the state file are credentials: keep `.env` files at `0600`,
+and treat the state directory as a secret. Neither is ever printed.
+
 Port 5354 is the DNS default because 53 needs root and 5353 collides with mDNS.
 
-## Layout
+## Not included
 
-```
-cmd/tailscale-socks   CLI (kong): flags, help, .env loading, wiring
-internal/tsnode       the Tailscale node: prefs, exit node, DNS, dialing
-internal/proxy        SOCKS5, HTTP and DNS servers over a tailnet dialer
-.env.example          every variable, with its default
-contrib/              zsh helpers, launchd agent and systemd unit
-Makefile              build, check, cover, vuln, outdated, release
-```
+This node consumes the tailnet; it does not offer anything to it. There is no
+route or exit-node advertising, no Taildrop, no `serve`/`funnel`, and no
+Tailscale SSH.
 
-Dependencies: [`tailscale.com`](https://tailscale.com) (tsnet),
-[`alecthomas/kong`](https://github.com/alecthomas/kong) (CLI),
-[`things-go/go-socks5`](https://github.com/things-go/go-socks5),
-[`joho/godotenv`](https://github.com/joho/godotenv), `golang.org/x/net` (DNS
-message parsing).
+## Documentation
+
+- [docs/service.md](docs/service.md) — running it as a background service
+- [docs/architecture.md](docs/architecture.md) — how the program is put together
+- [CONTRIBUTING.md](CONTRIBUTING.md) — building, testing and changing it
+- [.env.example](.env.example) — every variable, with its default
