@@ -7,7 +7,7 @@ process that joins a tailnet and forwards local connections into it.
 cmd/tailscale-socks   CLI: flags, help, .env loading, wiring, error reporting
 internal/tsnode       the Tailscale node: prefs, exit node, DNS, dialing
 internal/proxy        SOCKS5, HTTP and DNS servers over a tailnet dialer
-contrib/              zsh helpers, launchd agent and systemd unit
+contrib/              zsh helpers; platform/ holds one service backend each
 .env.example          every variable, with its default
 Makefile              build, check, cover, vuln, outdated, release
 ```
@@ -109,8 +109,9 @@ fix the problem, not debug this program.
 secrets. `config` prints everything else — it is made to be piped and `eval`'d.
 
 **A flag is a four-place contract.** The kong struct tag, `.env.example`, the
-README table and `configCmd.settings` all describe the same flag;
-`TestFlagEnvVars` fails when the environment variable drifts.
+README table and `configCmd.settings` all describe the same flag.
+`TestFlagEnvVars` fails when the environment variable drifts;
+`TestConfigSettingsCoverEveryFlag` fails when a flag never reaches the dump.
 
 ## Dependencies
 

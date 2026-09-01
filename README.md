@@ -228,7 +228,8 @@ Worth knowing:
 ## Run it in the background
 
 `contrib/tailscale-socks.zsh` installs the node as a **launchd** user agent on
-macOS or a **systemd** user unit on Linux, and adds a few shell functions:
+macOS, a **systemd** user unit on Linux or a **Task Scheduler** task on Windows,
+and adds a few shell functions:
 
 ```sh
 source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
@@ -250,6 +251,8 @@ and treat the state directory as a secret. Neither is ever printed.
 
 Port 5354 is the DNS default because 53 needs root and 5353 collides with mDNS.
 
+Found a vulnerability? Report it privately — see [SECURITY.md](SECURITY.md).
+
 ## Not included
 
 This node consumes the tailnet; it does not offer anything to it. There is no
@@ -261,4 +264,9 @@ Tailscale SSH.
 - [docs/service.md](docs/service.md) — running it as a background service
 - [docs/architecture.md](docs/architecture.md) — how the program is put together
 - [CONTRIBUTING.md](CONTRIBUTING.md) — building, testing and changing it
+- [SECURITY.md](SECURITY.md) — threat model and how to report a vulnerability
 - [.env.example](.env.example) — every variable, with its default
+
+## License
+
+[MIT](LICENSE) © d0whc3r

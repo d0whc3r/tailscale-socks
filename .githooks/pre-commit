@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pre-commit gate: format first, then the same `make check` CI runs.
+#
+# Enable with `make hooks`, skip one commit with `git commit --no-verify`.
+# `make check` looks at the working tree, not the index: a partial `git add`
+# is verified against what is on disk, like every other `make check` run.
+
+set -e
+
+make fmt
+
+# Re-stage what `make fmt` rewrote, so the commit carries the formatted file.
+# Restricted to paths already staged: nothing new sneaks into the commit.
+# `-r` matters — a bare `git add --` with no pathspec stages the whole tree.
+git diff --cached --name-only --diff-filter=ACM -z -- '*.go' |
+	xargs -0 -r git add --
+
+exec make check

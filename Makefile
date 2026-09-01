@@ -23,9 +23,9 @@ PLATFORMS := \
 	linux/amd64 linux/arm64 linux/arm \
 	windows/amd64 windows/arm64
 
-.PHONY: all build run test vet fmt fmt-check lint check cover cover-html vuln outdated release tidy clean
+.PHONY: all build run test vet fmt fmt-check lint check cover cover-html vuln outdated release tidy hooks clean
 
-all: check build
+all: hooks check build
 
 # A plain host build goes to ./$(BIN) unstripped, so it stays debuggable.
 # Anything cross-compiled or expanded from `all` goes to $(DIST)/ as a static,
@@ -121,6 +121,12 @@ outdated:
 
 tidy:
 	go mod tidy
+
+# Point git at the tracked hooks in .githooks/, so `git commit` runs the same
+# gate as CI. One command per clone; `git commit --no-verify` skips it once.
+hooks:
+	@git config core.hooksPath .githooks
+	@echo "git hooks enabled: .githooks (skip once with git commit --no-verify)"
 
 clean:
 	rm -rf $(BIN) $(BIN).exe $(DIST) $(COVER)

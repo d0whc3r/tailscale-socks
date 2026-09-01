@@ -18,6 +18,7 @@ make cover      # per-function statement coverage; cover-html opens a browser
 make vuln       # govulncheck (needs the network, so not part of check)
 make outdated   # direct deps and pinned tools with a newer version (network too)
 make fmt        # rewrite in place: gofmt + import grouping
+make hooks      # point git at .githooks/: fmt + check on every commit
 make release    # the full static matrix into dist/
 make clean
 ```
@@ -33,6 +34,11 @@ make build OS=all ARCH=arm64      # every arm64 target
 
 **`make check` is the gate.** Never install the tools separately, never
 `go run ...@latest`, never add a second linter config.
+
+`make hooks` sets `core.hooksPath` to the tracked `.githooks/` directory — one
+command per clone, no hook manager to install. `.githooks/pre-commit` runs
+`make fmt`, re-stages the files it rewrote that were already staged, then runs
+`make check`. `git commit --no-verify` skips it.
 
 ## Tests
 
@@ -110,11 +116,15 @@ Break one of these and the program is subtly wrong, not obviously broken.
 
 - **Layering.** `cmd/` wires, `internal/tsnode` owns the tailnet,
   `internal/proxy` owns the wire protocols. `internal/proxy` must never import
-  `internal/tsnode`. `cmd/` holds no protocol logic.
+  `internal/tsnode`. `cmd/` holds no protocol logic. One command per file in
+  `cmd/` (`run.go`, `status.go`, `config.go`); the flag structs and the help
+  text that documents them share `flags.go`; `main.go` only parses and wires.
+  Split by what changes together, not by size.
 - **A flag is a four-place contract.** Adding or changing one means the kong
   struct tag, `.env.example`, the README table and `configCmd.settings` — all
   four, same change. `TestFlagEnvVars` fails when the environment variable
-  drifts. Variables are `TSPROXY_*`, except `TS_AUTHKEY` and `TS_CONTROL_URL`,
+  drifts; `TestConfigSettingsCoverEveryFlag` fails when a flag never reaches
+  the dump. Variables are `TSPROXY_*`, except `TS_AUTHKEY` and `TS_CONTROL_URL`,
   which are Tailscale's own names: never rename or prefix them.
 - **The state directory must not depend on the binary's name.** `tsnet`'s own
   default does, so renaming the binary would silently lose the login and
@@ -157,3 +167,11 @@ last commit are still caught).
 Pushing a `v*` tag runs `make release`, writes `SHA256SUMS.txt` and creates the
 GitHub release with the binaries attached. Dependabot opens weekly grouped PRs
 for direct Go dependencies and actions.
+
+## Security and license
+
+Found a vulnerability? Don't open a public issue or pull request — report it
+privately, as described in [SECURITY.md](SECURITY.md).
+
+Contributions are licensed under the [MIT License](LICENSE), same as the rest
+of the project.

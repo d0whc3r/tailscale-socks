@@ -2,7 +2,8 @@
 
 `contrib/tailscale-socks.zsh` keeps a `tailscale-socks` node running in the
 background through the platform's own service manager: a **launchd** user agent
-on macOS, a **systemd** user unit on Linux. Source it from `~/.zshrc`:
+on macOS, a **systemd** user unit on Linux, a **Task Scheduler** task on Windows.
+Source it from `~/.zshrc`:
 
 ```sh
 source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
@@ -29,10 +30,42 @@ affected: the state directory keys on the hostname, not on the path.
 ```
 macOS   ~/Library/LaunchAgents/tailscale-socks.plist   log: ~/Library/Logs/tailscale-socks.log
 Linux   ~/.config/systemd/user/tailscale-socks.service log: journalctl --user -u tailscale-socks
+Windows Task Scheduler task "tailscale-socks"          log: %LOCALAPPDATA%\tailscale-socks\tailscale-socks.log
 ```
 
-Both start at login. Only a crash restarts the node — `ts_down` stays down. On
-Linux, `loginctl enable-linger $USER` also starts it at boot, before login.
+All three start at login. Only a crash restarts the node — `ts_down` stays down.
+On Linux, `loginctl enable-linger $USER` also starts it at boot, before login.
+
+## Platforms
+
+The backend is picked from `$OSTYPE` and lives in its own file under
+`contrib/platform/`; the main script sources the one that matches, so the
+directory has to travel with it. An unknown `$OSTYPE` refuses to load rather
+than guessing.
+
+| `$OSTYPE` | Backend | Notes |
+|---|---|---|
+| `darwin*` | launchd user agent | |
+| `linux*` | systemd user unit | WSL included, when it has systemd |
+| `msys*`, `cygwin*` | Task Scheduler task | zsh on Windows: MSYS2, Cygwin, Git Bash |
+
+`systemctl` being installed is not the same as it working: WSL without
+`systemd=true` and most containers have the binary but no user session bus.
+`ts_install` checks for one and says so, instead of leaving you with systemd's
+`Failed to connect to bus`.
+
+On Windows the task is registered through PowerShell, not `schtasks`, because
+the `schtasks /SC ONLOGON` defaults break a long-running service: the task will
+not start on battery, stops when the machine goes on battery, and is killed
+after 72 hours. Two things differ from the other platforms:
+
+- Task Scheduler cannot redirect output, so the task runs a small `run.cmd`
+  wrapper that appends to the log. A console window stays open while the node
+  runs. Hiding it means an S4U task, which fails outright on an account without
+  the batch logon right.
+- Windows has no SIGTERM for a detached console process, so `ts_down` is a hard
+  stop. The state file is written to a temp file and renamed, so this cannot
+  corrupt the login.
 
 ## Status
 

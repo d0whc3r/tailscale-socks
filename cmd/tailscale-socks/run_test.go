@@ -7,8 +7,6 @@ import (
 	"net"
 	"strings"
 	"testing"
-
-	"github.com/alecthomas/kong"
 )
 
 // TestRunRejectsBadFlagsBeforeJoining checks the fail-fast guards in runCmd.Run:
@@ -79,75 +77,5 @@ func TestRunRejectsBadFlagsBeforeJoining(t *testing.T) {
 				t.Errorf("Run() = %v, want it to mention %q", err, tt.want)
 			}
 		})
-	}
-}
-
-// TestFlagEnvVars pins the environment variable of every flag. They are a
-// three-place contract with .env.example and the README table, and kong derives
-// most of them from the flag name: --socks5 in particular would become
-// TSPROXY_SOCKS_5 without its explicit env tag.
-func TestFlagEnvVars(t *testing.T) {
-	t.Parallel()
-
-	want := map[string]string{
-		"hostname":            "TSPROXY_HOSTNAME",
-		"auth-key":            "TS_AUTHKEY",
-		"state-dir":           "TSPROXY_STATE_DIR",
-		"socks5":              "TSPROXY_SOCKS5",
-		"http":                "TSPROXY_HTTP",
-		"dns":                 "TSPROXY_DNS",
-		"exit-node":           "TSPROXY_EXIT_NODE",
-		"exit-node-allow-lan": "TSPROXY_EXIT_NODE_ALLOW_LAN",
-		"accept-routes":       "TSPROXY_ACCEPT_ROUTES",
-		"accept-dns":          "TSPROXY_ACCEPT_DNS",
-		"verbose":             "TSPROXY_VERBOSE",
-	}
-
-	var root cli
-	parser, err := kong.New(&root, kong.DefaultEnvars("TSPROXY"), kong.Vars{"version": "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var run *kong.Node
-	for _, child := range parser.Model.Node.Children {
-		if child.Name == "run" {
-			run = child
-		}
-	}
-	if run == nil {
-		t.Fatal(`no "run" command in the model`)
-	}
-
-	seen := make(map[string]bool, len(want))
-	for _, f := range run.Flags {
-		seen[f.Name] = true
-		var got string
-		if len(f.Envs) > 0 {
-			got = f.Envs[0]
-		}
-		if len(f.Envs) > 1 {
-			t.Errorf("--%s has several env vars %q, want at most one", f.Name, f.Envs)
-		}
-		w, known := want[f.Name]
-		if !known {
-			t.Errorf("--%s is not in the README table; add it there, to .env.example and here", f.Name)
-			continue
-		}
-		if got != w {
-			t.Errorf("--%s env = %q, want %q", f.Name, got, w)
-		}
-	}
-	for name := range want {
-		if !seen[name] {
-			t.Errorf("--%s is documented but no longer exists", name)
-		}
-	}
-
-	// --help and --version are kong's own; neither takes a value from the
-	// environment, and the README table says so.
-	for _, f := range parser.Model.Node.Flags {
-		if (f.Name == "help" || f.Name == "version") && len(f.Envs) > 0 {
-			t.Errorf("--%s reads %q, want no environment variable", f.Name, f.Envs)
-		}
 	}
 }

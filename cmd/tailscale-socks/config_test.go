@@ -130,3 +130,46 @@ func TestConfigDefaultsTheStateDirToTheHostname(t *testing.T) {
 		t.Errorf("config state-dir = %q, want %q", got, want)
 	}
 }
+
+// The config dump is the fourth place a flag has to be registered, and the
+// only one no other test covers: a flag that never reaches settings() is
+// silently missing from `tailscale-socks config`. The auth key is the
+// deliberate exception, being a credential.
+func TestConfigSettingsCoverEveryFlag(t *testing.T) {
+	t.Parallel()
+
+	cmd := testConfigCmd()
+	settings, err := cmd.settings()
+	if err != nil {
+		t.Fatalf("settings() = %v", err)
+	}
+	envByFlag := make(map[string]string, len(settings))
+	for _, s := range settings {
+		envByFlag[s.flag] = s.env
+	}
+
+	run, _ := cliFlags(t)
+	flags := make(map[string]bool, len(run))
+	for _, f := range run {
+		flags[f.Name] = true
+		if f.Name == "auth-key" {
+			if _, ok := envByFlag[f.Name]; ok {
+				t.Error("settings() exposes the auth key; it is a credential")
+			}
+			continue
+		}
+		env, ok := envByFlag[f.Name]
+		if !ok {
+			t.Errorf("--%s is missing from configCmd.settings()", f.Name)
+			continue
+		}
+		if len(f.Envs) > 0 && env != f.Envs[0] {
+			t.Errorf("settings() reports --%s as %s, want %s", f.Name, env, f.Envs[0])
+		}
+	}
+	for flag := range envByFlag {
+		if !flags[flag] {
+			t.Errorf("settings() reports %q, which is not a flag any more", flag)
+		}
+	}
+}

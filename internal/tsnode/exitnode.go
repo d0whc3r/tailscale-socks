@@ -6,7 +6,6 @@ import (
 
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
-	"tailscale.com/tailcfg"
 )
 
 // setExitNode fills the exit-node fields of mp from a user-supplied argument:
@@ -38,14 +37,4 @@ func setExitNode(mp *ipn.MaskedPrefs, arg string, st *ipnstate.Status) error {
 		return fmt.Errorf("exit node %q: %w", arg, err)
 	}
 	return nil
-}
-
-// peerName returns a readable name for a node ID found in st.
-func peerName(st *ipnstate.Status, id tailcfg.StableNodeID) string {
-	for _, ps := range st.Peer {
-		if ps.ID == id {
-			return strings.TrimSuffix(ps.DNSName, ".")
-		}
-	}
-	return string(id)
 }

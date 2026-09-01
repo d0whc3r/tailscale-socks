@@ -4,7 +4,7 @@
 #
 #     source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
 #
-#   ts_install     write and load the service (launchd agent / systemd user unit)
+#   ts_install     write and load the service (launchd / systemd / Task Scheduler)
 #   ts_up          start it
 #   ts_down        stop it
 #   ts_restart     stop, start
@@ -18,14 +18,41 @@
 # invocation.
 
 TS_SOCKS_LABEL=tailscale-socks
-TS_SOCKS_PLIST=$HOME/Library/LaunchAgents/$TS_SOCKS_LABEL.plist
-TS_SOCKS_UNIT=$HOME/.config/systemd/user/$TS_SOCKS_LABEL.service
-TS_SOCKS_LOG=$HOME/Library/Logs/$TS_SOCKS_LABEL.log
+
+# --- platform ---------------------------------------------------------------
+#
+# One file per service manager, under platform/. Each defines the same set:
+#
+#   _ts_svc_check          the service manager is present and usable here
+#   _ts_installed          the service is written
+#   _ts_write_service BIN  write it and enable it for autostart
+#   _ts_remove_service     stop it and remove it
+#   _ts_start _ts_stop     run it, end it
+#   _ts_pid                the node's pid, empty when it is not running
+#   _ts_logtail N          the last N lines
+#   _ts_logfollow          follow the log
+#   _ts_boot_hint          one line on what starts it
+#
+# zsh on Windows is MSYS2, Cygwin or Git Bash; WSL reports itself as Linux,
+# which is right — it runs the systemd unit when it has a systemd to run it.
+
+case $OSTYPE in
+  darwin*)       TS_SOCKS_OS=darwin  ;;
+  linux*)        TS_SOCKS_OS=linux   ;;
+  msys*|cygwin*) TS_SOCKS_OS=windows ;;
+  *)
+    print -u2 "tailscale-socks: no service backend for OSTYPE=$OSTYPE"
+    return 1
+    ;;
+esac
+
+# %x is this file even when sourced, which $0 is not under every option set.
+source ${${(%):-%x}:A:h}/platform/$TS_SOCKS_OS.zsh || return 1
 
 # --- helpers ----------------------------------------------------------------
 
 # _ts_bin prints the absolute path of the binary, symlinks resolved: the
-# service must not depend on a $PATH that launchd or systemd may not have.
+# service must not depend on a $PATH that the service manager may not have.
 _ts_bin() {
   local b=${TS_SOCKS_BIN:-${commands[tailscale-socks]}}
   if [[ ! -x $b ]]; then
@@ -46,7 +73,7 @@ _ts_cfg() {
 }
 
 # _ts_probe ADDR succeeds when something accepts TCP on ADDR. zsh/net/tcp
-# keeps this free of nc, which is not the same program on both platforms.
+# keeps this free of nc, which is not the same program on every platform.
 _ts_probe() {
   local host=${1%:*} port=${1##*:}
   host=${host#\[}; host=${host%\]}
@@ -66,106 +93,11 @@ _ts_summary() {
     END                            { printf "%s", b }'
 }
 
-# --- platform ---------------------------------------------------------------
-
-if [[ $OSTYPE == darwin* ]]; then
-
-  _ts_installed() { [[ -f $TS_SOCKS_PLIST ]] }
-
-  _ts_write_service() {
-    local bin=$1
-    mkdir -p ${TS_SOCKS_PLIST:h} ${TS_SOCKS_LOG:h}
-    cat > $TS_SOCKS_PLIST <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>$TS_SOCKS_LABEL</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$bin</string>
-    <string>run</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <!-- Restart on a crash only. A clean exit (SIGTERM from ts_down) stays down. -->
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-  <key>ThrottleInterval</key>
-  <integer>10</integer>
-  <key>StandardOutPath</key>
-  <string>$TS_SOCKS_LOG</string>
-  <key>StandardErrorPath</key>
-  <string>$TS_SOCKS_LOG</string>
-</dict>
-</plist>
-PLIST
-    launchctl bootout gui/$UID/$TS_SOCKS_LABEL 2>/dev/null
-    launchctl bootstrap gui/$UID $TS_SOCKS_PLIST
-  }
-
-  _ts_remove_service() {
-    launchctl bootout gui/$UID/$TS_SOCKS_LABEL 2>/dev/null
-    rm -f $TS_SOCKS_PLIST
-  }
-
-  _ts_start()   { launchctl kickstart gui/$UID/$TS_SOCKS_LABEL }
-  _ts_stop()    { launchctl kill TERM gui/$UID/$TS_SOCKS_LABEL }
-  _ts_pid()     { launchctl print gui/$UID/$TS_SOCKS_LABEL 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' }
-  _ts_logtail() { tail -n $1 $TS_SOCKS_LOG 2>/dev/null }
-  _ts_logfollow() { tail -n 50 -f $TS_SOCKS_LOG }
-  _ts_boot_hint() { print "autostart: at login, by ~/Library/LaunchAgents" }
-
-else
-
-  _ts_installed() { [[ -f $TS_SOCKS_UNIT ]] }
-
-  _ts_write_service() {
-    local bin=$1
-    mkdir -p ${TS_SOCKS_UNIT:h}
-    cat > $TS_SOCKS_UNIT <<UNIT
-[Unit]
-Description=tailscale-socks: SOCKS5, HTTP and DNS front doors to a tailnet
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=$bin run
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-UNIT
-    systemctl --user daemon-reload
-    systemctl --user enable $TS_SOCKS_LABEL
-  }
-
-  _ts_remove_service() {
-    systemctl --user disable --now $TS_SOCKS_LABEL 2>/dev/null
-    rm -f $TS_SOCKS_UNIT
-    systemctl --user daemon-reload
-  }
-
-  _ts_start()   { systemctl --user start $TS_SOCKS_LABEL }
-  _ts_stop()    { systemctl --user stop $TS_SOCKS_LABEL }
-  _ts_pid()     { systemctl --user show -p MainPID --value $TS_SOCKS_LABEL 2>/dev/null | grep -v '^0$' }
-  _ts_logtail() { journalctl --user -u $TS_SOCKS_LABEL -n $1 --no-pager -o cat 2>/dev/null }
-  _ts_logfollow() { journalctl --user -u $TS_SOCKS_LABEL -n 50 -f -o cat }
-  _ts_boot_hint() {
-    print "autostart: at login; for boot without login run: loginctl enable-linger $USER"
-  }
-
-fi
-
 # --- commands ---------------------------------------------------------------
 
 ts_install() {
   local bin
+  _ts_svc_check || return 1
   bin=$(_ts_bin) || return 1
   _ts_write_service $bin || return 1
   print "installed: $bin"
