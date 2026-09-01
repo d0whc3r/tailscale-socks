@@ -19,11 +19,10 @@ Download the package for your platform from the [latest release](https://github.
 | Platform | Download | Install |
 |---|---|---|
 | macOS | `tailscale-socks-darwin-universal.dmg` | open it, then double-click `install.command` |
-| Linux | `tailscale-socks-<version>-<arch>.deb` | `sudo apt install ./tailscale-socks-<version>-<arch>.deb` |
-| Windows | `tailscale-socks-setup-windows-<arch>.exe` | run it — per-user, no administrator |
-| Other | `tailscale-socks-<os>-<arch>.tar.gz` (`.zip` on Windows) | unpack it, run `./install.sh` |
+| Linux | `tailscale-socks-<version>-amd64.deb` | `sudo apt install ./tailscale-socks-<version>-amd64.deb` |
+| Windows | `tailscale-socks-setup-windows-amd64.exe` | run it — per-user, no administrator |
 
-`<arch>` is what `uname -m` says: `x86_64` is `amd64`, `aarch64` is `arm64`, `armv7l` is `armv7` — which the archives spell `arm`. The macOS image holds a universal binary, so there is nothing to pick there. Every file on the release page is listed in `SHA256SUMS.txt`:
+Every package is x86-64, except the macOS image, which holds a universal binary and runs on both Apple silicon and Intel. On any other architecture, build from source: see [CONTRIBUTING.md](CONTRIBUTING.md). The three files on the release page are listed in `SHA256SUMS.txt`:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS.txt   # shasum -a 256 -c on macOS
@@ -31,14 +30,12 @@ sha256sum -c --ignore-missing SHA256SUMS.txt   # shasum -a 256 -c on macOS
 
 Nothing is signed with a Developer ID, so macOS quarantines the image: the first `install.command` needs a right-click → **Open**. Running `./install.sh` from the mounted volume in a terminal skips that.
 
-Building from source instead: see [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## 2. Load the shell helpers
 
 Add the line for your install to `~/.zshrc`:
 
 ```sh
-# macOS, and any archive install
+# macOS
 source "$HOME/.local/share/tailscale-socks/contrib/tailscale-socks.zsh"
 
 # Linux .deb
@@ -48,7 +45,7 @@ source /usr/share/tailscale-socks/contrib/tailscale-socks.zsh
 source "$(cygpath -u "$LOCALAPPDATA")/Programs/tailscale-socks/contrib/tailscale-socks.zsh"
 ```
 
-Then make sure `~/.tailscale/.env` exists. The macOS and archive installers write it for you; the `.deb` does not, so copy it — every line in it is commented out, so an untouched copy keeps the defaults:
+Then make sure `~/.tailscale/.env` exists. The macOS installer writes it for you; the `.deb` does not, so copy it — every line in it is commented out, so an untouched copy keeps the defaults:
 
 ```sh
 mkdir -p ~/.tailscale

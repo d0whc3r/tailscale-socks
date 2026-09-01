@@ -131,6 +131,6 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis xorriso
       - uses: goreleaser/goreleaser-action@v7
         with:
-          args: release --clean
+          args: release --clean --skip=archive
         env:
           GITHUB_TOKEN: ${{ github.token }}

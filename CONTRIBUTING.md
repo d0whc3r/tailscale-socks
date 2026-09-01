@@ -15,7 +15,7 @@ make vuln       # govulncheck (needs the network, so not part of check)
 make outdated   # direct deps and pinned tools with a newer version (network too)
 make fmt        # rewrite in place: gofmt + import grouping
 make hooks      # point git at .githooks/: check what each commit touches and says
-make release    # GoReleaser dry run: binaries, archives and installers into dist/
+make release    # GoReleaser dry run: the three installers into dist/
 make clean
 ```
 
@@ -157,29 +157,29 @@ Break one of these and the program is subtly wrong, not obviously broken.
 
 The highest bump in the range wins. The first tag is `v1.0.0`, since there is no earlier one to bump. Only subjects are matched for the type prefix, so a commit body that quotes `feat:` does not cut a release; `packaging/test/version.bats` covers each rule.
 
-The `release` job then runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) on that tag: it builds the matrix, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree.
+The `release` job then runs [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) on that tag: it builds the three packages, writes `SHA256SUMS.txt` and creates the GitHub release with notes grouped by conventional commit type. The version in the binary is the tag itself, read back through `debug.ReadBuildInfo`, so there is nothing to bump in the tree.
 
 It hangs off the `tag` job rather than off a tag push, because a tag pushed with `GITHUB_TOKEN` deliberately does not start a workflow. `ci.yml` therefore listens to `main` only — a tag pushed by hand starts nothing, and pushing one is not how a release is cut any more. When the script finds HEAD already tagged it reports `push=false`, which is what lets a failed `release` be re-run without a second tag.
 
-Each tag produces two things per platform: a plain archive carrying `contrib/install.sh`, and the platform's own installer. All of them ship the same payload — executable, zsh service helper for that platform, the configuration template, README, service docs, license.
+Each tag produces exactly three files, one installer per platform, and nothing else: no tar.gz, no zip. Only x86-64 is packaged, except the disk image, which carries a universal binary. All three ship the same payload — executable, zsh service helper for that platform, the configuration template, README, service docs, license.
 
-The `.deb` and the Windows setup ship `.env.example` renamed to `.env`, so the user copies it without a rename; the archives and the disk image keep the `.env.example` name, because `contrib/install.sh` is what turns it into `~/.tailscale/.env`. On Windows that lands next to the executable, which `dotEnvPaths` reads, so it is the live configuration from the first install on: the NSIS script writes it with `SetOverwrite off` and the uninstaller leaves it, or a reinstall would clobber a file holding `TS_AUTHKEY`.
+The `.deb` and the Windows setup ship `.env.example` renamed to `.env`, so the user copies it without a rename; the disk image keeps the `.env.example` name, because `contrib/install.sh` is what turns it into `~/.tailscale/.env`. On Windows that lands next to the executable, which `dotEnvPaths` reads, so it is the live configuration from the first install on: the NSIS script writes it with `SetOverwrite off` and the uninstaller leaves it, or a reinstall would clobber a file holding `TS_AUTHKEY`.
 
 | Artifact | Built by | Payload goes to |
 |---|---|---|
 | `.deb` | GoReleaser `nfpms` (pure Go) | `/usr/bin`, `/usr/share/tailscale-socks`, `/usr/share/doc` |
-| `.dmg` | `packaging/macos-dmg.sh` → `xorriso` | wherever `install.sh` puts it — the image is a mountable copy of the archive |
+| `.dmg` | `packaging/macos-dmg.sh` → `xorriso` | wherever `install.sh` puts it — the image is a mountable copy of the payload |
 | setup `.exe` | `packaging/windows-nsis.sh` → `packaging/windows.nsi` → `makensis` | `%LOCALAPPDATA%\Programs\tailscale-socks`, added to the user `PATH` |
 
-The two scripts run as GoReleaser hooks rather than as a step after the release, so their output is inside `SHA256SUMS.txt` like every other artifact. The `nsi` script gets one architecture at a time from the build post-hook, which no-ops on every target that is not Windows; the disk image gets the universal binary GoReleaser makes with `lipo`, so there is one image for every Mac.
+The two scripts run as GoReleaser hooks rather than as a step after the release, so their output is inside `SHA256SUMS.txt` like the `.deb`. GoReleaser's own archive step is turned off with `--skip=archive`, in the workflow and in `make release` alike: an empty `archives:` block would only make it fall back to its tar.gz default. The `nsi` script gets one architecture at a time from the build post-hook, which no-ops on every target that is not Windows; the disk image gets the universal binary GoReleaser makes with `lipo`, so there is one image for every Mac.
 
 **Everything cross-builds, so the release job runs on ubuntu.** That is the reason macOS gets a `.dmg` and not a `.pkg`: `pkgbuild` ships only with Xcode's command line tools, and the tools that would replace it on Linux — Apple's `xar`, plus `bomutils` for the receipt — are packaged in no Ubuntu release and unmaintained since 2012. `xorriso` is in the archive and makes an ISO 9660 image with Rock Ridge extensions, which macOS mounts and which carries the Unix permission bits the executable and `install.command` need.
 
-The image is a mountable copy of the release archive plus `packaging/install.command`, which exists only because Finder runs a `.command` in Terminal and opens a `.sh` in a text editor. It ships `.env.example`, not `.env` like the other two packages, because `contrib/install.sh` is what turns it into `~/.tailscale/.env` — and a read-only disk image is not somewhere you could edit a config anyway.
+The image is a mountable copy of that payload plus `packaging/install.command`, which exists only because Finder runs a `.command` in Terminal and opens a `.sh` in a text editor. It ships `.env.example`, not `.env` like the other two packages, because `contrib/install.sh` is what turns it into `~/.tailscale/.env` — and a read-only disk image is not somewhere you could edit a config anyway.
 
 Nothing is signed — a Developer ID costs $99/year. If that changes, sign the binary before `packaging/macos-dmg.sh` stages it and notarize the image with `xcrun notarytool`, which does need a Mac.
 
-`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser makensis xorriso`, while `make build OS=all ARCH=all` cross-builds the matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
+`make release` runs the same config locally as a snapshot; it needs `brew install goreleaser makensis xorriso`, while `make build OS=all ARCH=all` cross-builds the full matrix with the toolchain alone. Renovate opens weekly grouped PRs for direct Go dependencies, tool dependencies, and actions.
 
 ## Security and license
 

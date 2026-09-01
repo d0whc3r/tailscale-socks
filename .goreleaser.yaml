@@ -1,5 +1,5 @@
 # Release pipeline for a tag push. One matrix, one place: CI runs
-# `goreleaser release`, `make release` runs the same config as a snapshot.
+# `goreleaser release --skip=archive`, `make release` runs the same as a snapshot.
 version: 2
 
 builds:
@@ -12,16 +12,9 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: [-s -w]
-    goos: [darwin, linux, windows]
-    goarch: [amd64, arm64, arm]
-    # GOARM=7 is the toolchain default; pinning it keeps GoReleaser from
-    # dropping to its own default of 6.
-    goarm: ['7']
-    ignore:
-      - goos: darwin
-        goarch: arm
-      - goos: windows
-        goarch: arm
+    # Only what the release ships: one .deb, one .dmg, one .exe. The two
+    # darwin targets exist solely to be lipo'd into the universal binary.
+    targets: [darwin_amd64, darwin_arm64, linux_amd64, windows_amd64]
     # The hook fires once per target and no-ops on everything but Windows;
     # running it here rather than after the release keeps the installer inside
     # the checksum file.
@@ -29,53 +22,29 @@ builds:
       post:
         - ./packaging/windows-nsis.sh {{ .Os }} {{ .Arch }} {{ .Path }} {{ .Version }}
 
-# One .pkg for every Mac, instead of one per architecture. `replace: false`
-# keeps the per-architecture archives, which is what install.sh consumes.
+# One .dmg for every Mac, instead of one per architecture. `replace: true`
+# drops the per-architecture darwin binaries: nothing else consumes them.
 universal_binaries:
   - id: universal
     ids: [tailscale-socks]
-    replace: false
+    replace: true
     hooks:
       post: ./packaging/macos-dmg.sh {{ .Path }} {{ .Version }} dist/tailscale-socks-darwin-universal.dmg
 
-# One installable per target: the executable, its platform helper, the service
-# documentation and an installer that keeps all of them together.
-archives:
-  # Per-architecture only: the universal binary exists for the .pkg, and a
-  # second darwin archive would just be a bigger download of the same thing.
-  - ids: [tailscale-socks]
-    formats: [tar.gz]
-    name_template: '{{ .Binary }}-{{ .Os }}-{{ .Arch }}'
-    format_overrides:
-      - goos: windows
-        formats: [zip]
-    wrap_in_directory: true
-    files:
-      - .env.example
-      - LICENSE
-      - README.md
-      # Glob, not a list: a new page under docs/ ships without a change here.
-      - docs/*.md
-      - src: contrib/install.sh
-        dst: install.sh
-        info:
-          mode: 0755
-      - src: contrib/tailscale-socks.zsh
-        dst: contrib/tailscale-socks.zsh
-      - src: contrib/platform/*.zsh
-        dst: contrib/platform
+# No tar.gz, no zip: the release is the three native installers and nothing
+# else. An empty `archives` is not enough — GoReleaser fills in its tar.gz
+# default — so the whole step is skipped with `--skip=archive`, in the Makefile
+# and in the release workflow alike.
 
-# Native installer per platform, next to the archives: .deb on Linux, a
-# mountable .dmg on macOS, an NSIS setup on Windows. Each one carries the same
-# payload as the archive — binary, zsh helpers, configuration template, docs —
-# put where that platform expects it. The archives stay for anyone who wants to
-# unpack a tarball instead.
+# The release, in full: a .deb on Linux, a mountable .dmg on macOS, an NSIS
+# setup on Windows. Each one carries the same payload — binary, zsh helpers,
+# configuration template, docs — put where that platform expects it.
 nfpms:
   - id: deb
     ids: [tailscale-socks]
     package_name: tailscale-socks
     formats: [deb]
-    file_name_template: '{{ .PackageName }}-{{ .Version }}-{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}'
+    file_name_template: '{{ .PackageName }}-{{ .Version }}-{{ .Arch }}'
     vendor: d0whc3r
     maintainer: d0whc3r <1378986+d0whc3r@users.noreply.github.com>
     homepage: https://github.com/d0whc3r/tailscale-socks

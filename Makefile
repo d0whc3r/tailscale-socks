@@ -76,7 +76,7 @@ release:
 		{ echo "makensis not installed: brew install makensis"; exit 1; }
 	@command -v xorriso >/dev/null 2>&1 || \
 		{ echo "xorriso not installed: brew install xorriso"; exit 1; }
-	goreleaser release --snapshot --clean
+	goreleaser release --snapshot --clean --skip=archive
 
 # -race because every listener runs in its own goroutine.
 test:
