@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	"github.com/alecthomas/kong"
 
@@ -127,11 +128,15 @@ func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
 	}
 	defer node.Close()
 
-	if summary, err := node.Describe(ctx); err == nil {
+	if summary, err := node.Describe(ctx); err != nil {
+		logger.Printf("describing node: %v", err)
+	} else {
 		fmt.Print(summary)
 	}
 
-	errc := make(chan error, 3)
+	// Buffered for every server below, so none of them blocks on the send
+	// once the first error has been read.
+	errc := make(chan error, 4)
 	if c.Socks5 != "" {
 		ln, err := net.Listen("tcp", c.Socks5)
 		if err != nil {
@@ -147,7 +152,11 @@ func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
 			return fmt.Errorf("http: %w", err)
 		}
 		defer ln.Close()
-		srv := &http.Server{Handler: proxy.NewHTTPProxy(node.DialContext)}
+		srv := &http.Server{
+			Handler: proxy.NewHTTPProxy(node.DialContext),
+			// Only bounds the request header; CONNECT tunnels stay open.
+			ReadHeaderTimeout: 10 * time.Second,
+		}
 		logger.Printf("HTTP proxy on %s", ln.Addr())
 		go func() { errc <- srv.Serve(ln) }()
 	}
@@ -232,9 +241,11 @@ func main() {
 	kctx.Bind(logger)
 
 	err := kctx.Run()
-	if errors.Is(err, context.Canceled) {
-		// Interrupted before we were up; not a failure.
+	if err == nil || errors.Is(err, context.Canceled) {
+		// A cancelled context means we were interrupted before we were up,
+		// which is not a failure.
 		return
 	}
-	kctx.FatalIfErrorf(err)
+	report(os.Stderr, err)
+	os.Exit(1)
 }

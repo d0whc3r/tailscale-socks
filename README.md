@@ -19,7 +19,8 @@ Needs Go 1.27 or newer.
 
 ```sh
 make build          # or: go build -o tailscale-socks ./cmd/tailscale-socks
-make check          # gofmt + go vet + go test
+make check          # gofmt + go vet + staticcheck + go test -race
+make vuln           # govulncheck over the dependency tree (needs network)
 make release        # static binaries for linux/darwin/windows into dist/
 ```
 
@@ -190,7 +191,7 @@ cmd/tailscale-socks   CLI (kong): flags, help, .env loading, wiring
 internal/tsnode       the Tailscale node: prefs, exit node, DNS, dialing
 internal/proxy        SOCKS5, HTTP and DNS servers over a tailnet dialer
 .env.example          every variable, with its default
-Makefile              build, check, release
+Makefile              build, check, vuln, release
 ```
 
 Dependencies: [`tailscale.com`](https://tailscale.com) (tsnet),

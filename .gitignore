@@ -1,4 +1,5 @@
 /tailscale-socks
-dist/
-.env
+/dist/
+/.env
 *.state
+/.tmp/

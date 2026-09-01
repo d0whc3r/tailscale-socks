@@ -106,12 +106,12 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 
 	st, err := ts.Up(ctx)
 	if err != nil {
-		ts.Close()
+		closeStarted(ts)
 		return nil, fmt.Errorf("joining tailnet: %w", err)
 	}
 	lc, err := ts.LocalClient()
 	if err != nil {
-		ts.Close()
+		closeStarted(ts)
 		return nil, err
 	}
 
@@ -120,10 +120,20 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 		n.dns = mgr
 	}
 	if err := n.applyPrefs(ctx, cfg, st); err != nil {
-		ts.Close()
+		closeStarted(ts)
 		return nil, err
 	}
 	return n, nil
+}
+
+// closeStarted closes ts, unless tsnet gave up before building its
+// subsystems. tsnet.Server.Close dereferences them unconditionally, so closing
+// after an early start failure crashes with a nil pointer and buries the real
+// error. Sys is nil exactly in that window.
+func closeStarted(ts *tsnet.Server) {
+	if ts.Sys() != nil {
+		ts.Close()
+	}
 }
 
 func (n *Node) applyPrefs(ctx context.Context, cfg Config, st *ipnstate.Status) error {

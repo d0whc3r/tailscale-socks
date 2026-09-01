@@ -17,7 +17,7 @@ PLATFORMS := \
 	linux/amd64 linux/arm64 linux/arm \
 	windows/amd64 windows/arm64
 
-.PHONY: all build run test vet fmt fmt-check lint check release tidy clean
+.PHONY: all build run test vet fmt fmt-check lint check vuln release tidy clean
 
 all: check build
 
@@ -61,8 +61,9 @@ run: build
 release:
 	@$(MAKE) build OS=all ARCH=all
 
+# -race because every listener runs in its own goroutine.
 test:
-	go test ./...
+	go test -race ./...
 
 vet:
 	go vet ./...
@@ -83,6 +84,11 @@ lint: fmt-check vet
 	go tool staticcheck ./...
 
 check: lint test
+
+# Known vulnerabilities in the dependency tree. Kept out of `check`: it needs
+# the network and the vulnerability database.
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 tidy:
 	go mod tidy

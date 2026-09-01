@@ -59,8 +59,9 @@ The test: every changed line traces directly to the request.
 **Define the check first. Not done until it passes.**
 
 ```sh
-make check     # goimports -l + go vet + staticcheck + go test ./...
+make check     # goimports -l + go vet + staticcheck + go test -race ./...
 make build     # host binary; make release for the full matrix
+make vuln      # govulncheck; needs the network, so it is not part of check
 ```
 
 `make check` is the gate. Both `goimports` and `staticcheck` are pinned in the

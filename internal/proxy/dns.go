@@ -5,11 +5,16 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"time"
 )
 
 // maxDNSMessage is the largest UDP DNS message we accept (EDNS0 allows more
 // than the classic 512 bytes).
 const maxDNSMessage = 4096
+
+// dnsQueryTimeout bounds a single lookup, so a stuck resolver cannot pile up
+// goroutines for as long as the process runs.
+const dnsQueryTimeout = 5 * time.Second
 
 // ServeDNSUDP answers DNS queries received on pc using the tailnet resolver.
 func ServeDNSUDP(ctx context.Context, pc net.PacketConn, b DNSBackend, logger *log.Logger) error {
@@ -22,6 +27,9 @@ func ServeDNSUDP(ctx context.Context, pc net.PacketConn, b DNSBackend, logger *l
 		query := make([]byte, n)
 		copy(query, buf[:n])
 		go func() {
+			ctx, cancel := context.WithTimeout(ctx, dnsQueryTimeout)
+			defer cancel()
+
 			src, _ := netip.ParseAddrPort(from.String())
 			resp, err := b.DNSQuery(ctx, query, "udp", src)
 			if err != nil {
