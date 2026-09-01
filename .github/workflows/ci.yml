@@ -24,14 +24,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # zsh is not on the runner image, and the packaged bats is older than
-      # the 1.5.0 the suite needs. Pinned to the version the tests were
-      # written against, like every other tool here.
+      # Neither is on the runner image. Ubuntu 24.04 packages bats 1.10, past
+      # the 1.5.0 the suite needs, so one apt call replaces the clone that
+      # used to build it from source; `bats_require_minimum_version` in
+      # contrib/test/helpers.bash is what fails if a runner ever ships older.
       - name: shell toolchain
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq zsh
-          git clone --depth 1 --branch v1.14.0 https://github.com/bats-core/bats-core.git /tmp/bats-core
-          sudo /tmp/bats-core/install.sh /usr/local
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh bats
       - run: make check
       - run: make build
       # Coverage lands in the run summary, so every push and pull request shows

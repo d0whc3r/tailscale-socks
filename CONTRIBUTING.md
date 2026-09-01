@@ -64,6 +64,8 @@ The subjects `git merge` and `git revert` write themselves are let through, and 
 
 `contrib/` has its own suite, in [bats](https://github.com/bats-core/bats-core) (1.5.0 or newer), along with `packaging/test`, run by `make test-sh` with a `zsh -n` syntax pass over the zsh and an `sh -n` pass over `contrib/install.sh` and `packaging/*.sh`. Same rule: no network, no node — the installer suite points `TSPROXY_BASE_URL` at a fixture directory over `file://`, so nothing it runs leaves the machine.
 
+bats spawns processes per test and has no cache of its own, which makes it an order of magnitude slower than the rest of `check`. So a passing run is stamped in `.tmp/test-sh.cksum` with a checksum of the shell, bats and Makefile sources, and skipped while they are unchanged — a checksum and not mtimes, because the make macOS ships is 3.81 and compares timestamps to the second, which would miss an edit landing inside that second. `rm -f .tmp/test-sh.cksum` forces a run, and `make -j4 check` overlaps it with the Go half.
+
 bats runs in bash and cannot call a zsh function directly, so `contrib/test/` has a seam. `contrib/test/harness.zsh` sources the contrib script under a chosen `$OSTYPE` and evals a zsh snippet piped in on stdin; the bats side wraps it in `zsh_run`. Write the snippet as a **quoted** heredoc, so it reaches zsh byte for byte:
 
 ```bash

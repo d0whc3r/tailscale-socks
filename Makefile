@@ -83,13 +83,17 @@ vet:
 # goimports, staticcheck and govulncheck are pinned in the go.mod `tool`
 # block, so `go tool` runs the exact versions with no separate install step.
 
+# The module's own Go, and only that: `.` would also walk the Go files under
+# .agents/, which belong to a vendored skill and are not ours to rewrite.
+GOSRC := ./cmd ./internal
+
 # Rewrite files in place: gofmt plus import fixing/grouping.
 fmt:
-	go tool goimports -w -local $(MODULE) .
+	go tool goimports -w -local $(MODULE) $(GOSRC)
 
 # Same check, read-only. Fails listing what `make fmt` would change.
 fmt-check:
-	@out=$$(go tool goimports -l -local $(MODULE) .); \
+	@out=$$(go tool goimports -l -local $(MODULE) $(GOSRC)); \
 	if [ -n "$$out" ]; then echo "unformatted (run: make fmt):"; echo "$$out"; exit 1; fi
 
 lint: fmt-check vet
@@ -100,16 +104,35 @@ lint: fmt-check vet
 # the suite runs in bats, which needs 1.5.0 or newer for `run --separate-stderr`.
 # Every service manager is stubbed, so all three backends are exercised on
 # whatever machine runs this: nothing is installed and no node is started.
-ZSHFILES := contrib/tailscale-socks.zsh contrib/platform/*.zsh contrib/test/*.zsh
-SHFILES := contrib/install.sh packaging/*.sh .githooks/*
+ZSHFILES := contrib/tailscale-socks.zsh $(wildcard contrib/platform/*.zsh contrib/test/*.zsh)
+SHFILES := contrib/install.sh $(wildcard packaging/*.sh .githooks/*)
+BATSFILES := $(wildcard contrib/test/*.bats contrib/test/*.bash packaging/test/*.bats)
 
+# bats spawns processes per test and has no cache of its own, which makes it
+# an order of magnitude slower than everything else in `check`. So a passing
+# run is stamped with a checksum of what it covers, and a Go-only edit does
+# not pay for it again. Force a run with `rm -f .tmp/test-sh.cksum`.
+#
+# Content and not mtimes: the make that ships with macOS is 3.81 and compares
+# timestamps to the second, so an edit landing inside the same second as the
+# stamp would be missed. `cksum` over the files and not over their contents
+# joined, or moving a line from the end of one file to the start of the next
+# would leave the sum unchanged.
+SHSTAMP := .tmp/test-sh.cksum
+
+# One shell for the whole recipe: make gives each line its own, and the skip
+# has to be able to end the run. The sum is computed here rather than in a
+# variable so that `make build` does not pay for it.
 test-sh:
-	@command -v zsh >/dev/null 2>&1 || { echo "zsh not installed"; exit 1; }
-	@command -v bats >/dev/null 2>&1 || \
-		{ echo "bats not installed: brew install bats-core"; exit 1; }
-	@for f in $(ZSHFILES); do zsh -n "$$f" || exit 1; done
-	@for f in $(SHFILES); do sh -n "$$f" || exit 1; done
-	bats --print-output-on-failure contrib/test packaging/test
+	@sum=$$(cksum Makefile $(ZSHFILES) $(SHFILES) $(BATSFILES) | cksum); \
+	if [ "$$(cat $(SHSTAMP) 2>/dev/null)" = "$$sum" ]; then exit 0; fi; \
+	command -v zsh >/dev/null 2>&1 || { echo "zsh not installed"; exit 1; }; \
+	command -v bats >/dev/null 2>&1 || \
+		{ echo "bats not installed: brew install bats-core"; exit 1; }; \
+	for f in $(ZSHFILES); do zsh -n "$$f" || exit 1; done; \
+	for f in $(SHFILES); do sh -n "$$f" || exit 1; done; \
+	bats --print-output-on-failure contrib/test packaging/test || exit 1; \
+	mkdir -p $(dir $(SHSTAMP)) && echo "$$sum" > $(SHSTAMP)
 
 check: lint test test-sh
 

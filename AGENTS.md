@@ -60,6 +60,8 @@ make outdated  # direct deps and pinned tools with a newer version; network too
 
 `make check` is the gate, and it now covers the shell too: `make test-sh` needs `zsh` and `bats` >= 1.5.0 (`brew install bats-core`). There is no linter for zsh — shellcheck rejects the dialect with SC1071 — so `zsh -n` is the syntax check.
 
+`test-sh` is the slow half and bats has no cache, so a passing run is stamped in `.tmp/test-sh.cksum` with a checksum of the shell, bats and Makefile sources: it is skipped until one of them changes. Go keeps its own cache. `rm -f .tmp/test-sh.cksum` forces a run.
+
 `goimports`, `staticcheck` and `govulncheck` are pinned in the `tool` block of `go.mod` and run through `go tool` — never install them separately, never `go run ...@latest`, never add a second linter config.
 
 Turn the task into something verifiable:
