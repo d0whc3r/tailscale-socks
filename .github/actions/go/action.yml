@@ -11,20 +11,26 @@ runs:
         go-version-file: go.mod
         cache: true
 
-    # The build cache has to rotate, so it gets its own entry. setup-go writes
-    # its bundle only on a miss, so the first job to finish under a given go.sum
-    # freezes the build cache for every run after it: `vuln` won that race and
+    # The build cache gets its own entry, keyed by job. setup-go writes its
+    # bundle only on a miss, so the first job to finish under a given go.sum
+    # froze the build cache for every run after it: `vuln` won that race and
     # left the gate recompiling tailscale.com for vet and again for -race, 128s
-    # of the 152s it took. run_id makes every run write a fresh entry and
-    # restore-keys picks the newest earlier one, so the cache tracks main.
+    # of the 152s `make check` took. A vet fact, a -race object and a plain
+    # archive are three different build profiles, so each job keeps its own and
+    # cannot overwrite what another one depends on.
     #
-    # Keyed by job because a vet fact, a -race object and a plain archive are
-    # three different cache profiles, and one job's misses must not evict what
-    # another job depends on. That is the failure being fixed, not a detail.
-    - uses: actions/cache@v4
+    # go-build carries the test cache too, so an unchanged package reports
+    # `(cached)` instead of running again, including under -coverprofile.
+    #
+    # No run_id in the key, deliberately. Rotating per run meant re-uploading
+    # the whole cache every time — 39s of a 78s job — and it grew unbounded,
+    # since each run appended to what it restored and saved the sum. Keyed on
+    # the two files that decide what is in it instead: go.sum for the
+    # dependency tree, go.mod for the toolchain that compiled it, both of which
+    # invalidate stale entries when they move. An exact hit skips the upload
+    # entirely; a miss falls back to the newest entry for the job and re-saves.
+    - uses: actions/cache@v6
       with:
         path: ~/.cache/go-build
-        key: go-build-${{ github.job }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
-        restore-keys: |
-          go-build-${{ github.job }}-${{ hashFiles('go.sum') }}-
-          go-build-${{ github.job }}-
+        key: go-build-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}
+        restore-keys: go-build-${{ github.job }}-

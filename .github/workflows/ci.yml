@@ -21,29 +21,24 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# `make check` split three ways. The halves are independent and were costing
-# their sum in one job; in parallel the gate costs the slowest of them. `lint`,
-# `test` and `shell` together are `check` plus `build` — the local gate is
-# still the single `make check`.
+# Two jobs, not one and not four. Splitting the Go half in two was measured and
+# reverted: with the caches working, `make lint` costs 7s and `make cover` 12s,
+# so a second Go job spent 14s installing the toolchain and ~10s restoring a
+# second copy of the same cache to parallelise 7s of work. `shell` stays on its
+# own because it needs no Go at all — it is free parallelism, not a split.
 jobs:
-  lint:
+  # `make check` minus the shell half, plus `build`. Coverage rather than
+  # `make test` because `cover` carries -race too: it is the whole test run plus
+  # the profile, where two targets meant compiling tailscale.com twice into two
+  # cache profiles for the same result.
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/go
       - run: make lint
-      # Here rather than with `test`, to balance the two Go jobs: this one is
-      # the shorter, and linking the binary is the one thing `go test` skips.
+      # Linking the binary is the one thing `go test` never does.
       - run: make build
-
-  # One `make cover` and not `make test` before it: cover carries -race too, so
-  # it is the whole test run plus the profile. Two targets meant compiling
-  # tailscale.com twice into two cache profiles for the same result.
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/go
       # Coverage lands in the run summary, so every push and pull request shows
       # the number without an external service, a token or a third-party action.
       - name: test and coverage
@@ -94,7 +89,7 @@ jobs:
   # again.
   tag:
     if: github.event_name == 'push'
-    needs: [lint, test, shell]
+    needs: [check, shell]
     runs-on: ubuntu-latest
     permissions:
       contents: write
