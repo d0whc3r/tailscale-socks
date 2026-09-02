@@ -97,13 +97,11 @@ func TestNodeFlagsConfig(t *testing.T) {
 		Hostname: "box",
 		StateDir: "/state",
 		AuthKey:  "tskey-auth-notasecretanymore",
-		ExitNode: "auto:any",
 	}.config(logf)
 	for _, c := range []struct{ field, got, want string }{
 		{"Hostname", cfg.Hostname, "box"},
 		{"StateDir", cfg.StateDir, "/state"},
 		{"AuthKey", cfg.AuthKey, "tskey-auth-notasecretanymore"},
-		{"ExitNode", cfg.ExitNode, "auto:any"},
 	} {
 		if c.got != c.want {
 			t.Errorf("config().%s = %q, want %q", c.field, c.got, c.want)
@@ -113,27 +111,10 @@ func TestNodeFlagsConfig(t *testing.T) {
 		t.Error("config() left Logf nil; the login URL would go nowhere")
 	}
 
-	// Exactly one flag on per case, so a field wired to the wrong flag fails.
-	tests := []struct {
-		name  string
-		flags nodeFlags
-		want  [3]bool // ExitNodeAllowLAN, AcceptRoutes, AcceptDNS
-	}{
-		{"nothing on", nodeFlags{}, [3]bool{false, false, false}},
-		{"exit-node-allow-lan", nodeFlags{ExitNodeAllowLan: true}, [3]bool{true, false, false}},
-		{"accept-routes", nodeFlags{AcceptRoutes: true}, [3]bool{false, true, false}},
-		{"accept-dns", nodeFlags{AcceptDns: true}, [3]bool{false, false, true}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := tt.flags.config(logf)
-			got := [3]bool{cfg.ExitNodeAllowLAN, cfg.AcceptRoutes, cfg.AcceptDNS}
-			if got != tt.want {
-				t.Errorf("{ExitNodeAllowLAN, AcceptRoutes, AcceptDNS} = %v, want %v", got, tt.want)
-			}
-		})
+	// The preferences are the writing half; config() must not carry them, or
+	// every caller would push them whether it meant to or not.
+	if cfg.Prefs != nil {
+		t.Errorf("config() set Prefs to %+v; a node config alone writes nothing", cfg.Prefs)
 	}
 
 	// --verbose is the only flag that turns on tsnet's internal chatter.
@@ -142,6 +123,39 @@ func TestNodeFlagsConfig(t *testing.T) {
 	}
 	if loud := (nodeFlags{Verbose: true}).config(logf); loud.DebugLogf == nil {
 		t.Error("config() with --verbose left DebugLogf nil")
+	}
+}
+
+// TestPrefFlagsPrefs pins the mapping from the flags onto tsnode.Prefs, the
+// half that EditPrefs persists.
+func TestPrefFlagsPrefs(t *testing.T) {
+	t.Parallel()
+
+	if got := (prefFlags{ExitNode: "auto:any"}).prefs().ExitNode; got != "auto:any" {
+		t.Errorf("prefs().ExitNode = %q, want auto:any", got)
+	}
+
+	// Exactly one flag on per case, so a field wired to the wrong flag fails.
+	tests := []struct {
+		name  string
+		flags prefFlags
+		want  [3]bool // ExitNodeAllowLAN, AcceptRoutes, AcceptDNS
+	}{
+		{"nothing on", prefFlags{}, [3]bool{false, false, false}},
+		{"exit-node-allow-lan", prefFlags{ExitNodeAllowLan: true}, [3]bool{true, false, false}},
+		{"accept-routes", prefFlags{AcceptRoutes: true}, [3]bool{false, true, false}},
+		{"accept-dns", prefFlags{AcceptDns: true}, [3]bool{false, false, true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := tt.flags.prefs()
+			got := [3]bool{p.ExitNodeAllowLAN, p.AcceptRoutes, p.AcceptDNS}
+			if got != tt.want {
+				t.Errorf("{ExitNodeAllowLAN, AcceptRoutes, AcceptDNS} = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -231,10 +245,55 @@ func TestHelpFlagsPerCommand(t *testing.T) {
 	}
 }
 
+// TestReportingCommandsTakeNoSettings is the read-only guarantee. status
+// writes: EditPrefs persists what it is given, so a status that accepted a
+// preference would leave the tailnet reconfigured behind it — and one that
+// accepted none but still applied its defaults would clear what run had set.
+// config writes nothing, but it is a report all the same, so it answers on the
+// environment and the .env files alone.
+func TestReportingCommandsTakeNoSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cmd  string
+		args []string
+	}{
+		{"status", []string{"--exit-node", "auto"}},
+		{"status", []string{"--exit-node-allow-lan"}},
+		{"status", []string{"--accept-routes"}},
+		{"status", []string{"--no-accept-routes"}},
+		{"status", []string{"--accept-dns"}},
+		{"status", []string{"--socks5", "127.0.0.1:1080"}},
+		{"config", []string{"--socks5", "127.0.0.1:1080"}},
+		{"config", []string{"--hostname", "box"}},
+		{"config", []string{"--state-dir", "/state"}},
+		{"config", []string{"--exit-node", "auto"}},
+		{"config", []string{"--verbose"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.cmd+" "+tt.args[0], func(t *testing.T) {
+			t.Parallel()
+
+			var c cli
+			parser, err := kong.New(&c, kong.DefaultEnvars("TSPROXY"), kong.Vars{"version": "test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := parser.Parse(append([]string{tt.cmd}, tt.args...)); err == nil {
+				t.Errorf("%s accepted %s; it reports, it does not configure", tt.cmd, tt.args[0])
+			}
+		})
+	}
+
+	// The other half of status: nothing it hands tsnode can reach EditPrefs.
+	if cfg := (statusCmd{}).config(func(string, ...any) {}); cfg.Prefs != nil {
+		t.Errorf("status built a config with Prefs %+v", cfg.Prefs)
+	}
+}
+
 // TestHiddenFlagsStillParse guards what hideSharedFlags must not do: the flags
-// are off the help page of status and config, not off the command line. status
-// needs them to reach the same node as run, and config is the one command that
-// exists to resolve them.
+// status keeps are off its help page, not off its command line. It needs them
+// to reach the same node as run.
 func TestHiddenFlagsStillParse(t *testing.T) {
 	t.Parallel()
 
@@ -247,16 +306,31 @@ func TestHiddenFlagsStillParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parser.Parse([]string{"status", "--hostname", "box", "--exit-node", "auto"}); err != nil {
+	if _, err := parser.Parse([]string{"status", "--hostname", "box", "--state-dir", "/state"}); err != nil {
 		t.Fatalf("status with hidden flags: %v", err)
 	}
-	if c.Status.Hostname != "box" || c.Status.ExitNode != "auto" {
-		t.Errorf("status flags = %q/%q, want box/auto", c.Status.Hostname, c.Status.ExitNode)
+	if c.Status.Hostname != "box" || c.Status.StateDir != "/state" {
+		t.Errorf("status flags = %q/%q, want box//state", c.Status.Hostname, c.Status.StateDir)
 	}
-	if _, err := parser.Parse([]string{"config", "--socks5", "127.0.0.1:9050", "socks5"}); err != nil {
-		t.Fatalf("config with hidden flags: %v", err)
+}
+
+// TestResolvedRunReadsTheEnvironment is what config now answers on: with no
+// command line left to merge, a setting reaches the dump through kong's
+// defaults and the environment, or it does not reach it at all.
+func TestResolvedRunReadsTheEnvironment(t *testing.T) {
+	t.Setenv("TSPROXY_SOCKS5", "127.0.0.1:9050")
+
+	run, err := resolvedRun()
+	if err != nil {
+		t.Fatalf("resolvedRun() = %v", err)
 	}
-	if c.Config.Socks5 != "127.0.0.1:9050" {
-		t.Errorf("config --socks5 = %q, want 127.0.0.1:9050", c.Config.Socks5)
+	if run.Socks5 != "127.0.0.1:9050" {
+		t.Errorf("resolvedRun().Socks5 = %q, want the value from the environment", run.Socks5)
+	}
+	if run.HTTP != "127.0.0.1:8080" {
+		t.Errorf("resolvedRun().HTTP = %q, want the default", run.HTTP)
+	}
+	if !run.AcceptRoutes {
+		t.Error("resolvedRun().AcceptRoutes is false; --accept-routes defaults to on")
 	}
 }

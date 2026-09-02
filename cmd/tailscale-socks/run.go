@@ -16,6 +16,7 @@ import (
 type runCmd struct {
 	listenFlags `embed:""`
 	nodeFlags   `embed:""`
+	prefFlags   `embed:""`
 }
 
 func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
@@ -61,7 +62,11 @@ func (c *runCmd) Run(ctx context.Context, logger *log.Logger) error {
 		dnsPC, dnsLn = pc, ln
 	}
 
-	node, err := tsnode.Start(ctx, c.config(logger.Printf))
+	cfg := c.config(logger.Printf)
+	prefs := c.prefs()
+	cfg.Prefs = &prefs
+
+	node, err := tsnode.Start(ctx, cfg)
 	if err != nil {
 		return err
 	}

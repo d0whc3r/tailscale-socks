@@ -58,36 +58,50 @@ Examples:
   curl --proxy http://127.0.0.1:8080    http://peer.tailnet.ts.net/
   dig @127.0.0.1 -p 5354 peer.tailnet.ts.net`
 
-// nodeFlags configure the underlying Tailscale node.
+// nodeFlags say which node to join and how loudly. They change nothing on the
+// tailnet, which is what lets status take them: the preferences live in
+// prefFlags, and status does not embed those.
 type nodeFlags struct {
 	Hostname string `short:"n" default:"ts-proxy" help:"Node name to register on the tailnet."`
 	AuthKey  string `short:"k" env:"TS_AUTHKEY" placeholder:"KEY" help:"Auth key for unattended login. Without it, the first run prints a login URL."`
 	StateDir string `short:"D" type:"path" placeholder:"DIR" help:"Directory holding the login state (default: <user config dir>/tailscale-socks/<hostname>)."`
 
-	ExitNode         string `short:"e" placeholder:"NODE" help:"Send outbound traffic through an exit node: auto, auto:<expr>, a peer name, a Tailscale IP, or off."`
-	ExitNodeAllowLan bool   `name:"exit-node-allow-lan" short:"l" help:"Keep the local LAN reachable while an exit node is in use."`
-
-	AcceptRoutes bool `short:"r" negatable:"" default:"true" help:"Accept subnet routes advertised by subnet routers. On by default; disable with --no-accept-routes."`
-	AcceptDns    bool `name:"accept-dns" short:"a" negatable:"" default:"true" help:"Use the tailnet DNS configuration: MagicDNS, split DNS, exit-node DNS. On by default; disable with --no-accept-dns."`
-
 	Verbose bool `short:"v" help:"Also log tsnet's internal chatter."`
 }
 
+// config returns the node to join, with no preferences attached: a caller that
+// means to write them adds them itself.
 func (f nodeFlags) config(logf func(string, ...any)) tsnode.Config {
 	cfg := tsnode.Config{
-		Hostname:         f.Hostname,
-		StateDir:         f.StateDir,
-		AuthKey:          f.AuthKey,
-		ExitNode:         f.ExitNode,
-		ExitNodeAllowLAN: f.ExitNodeAllowLan,
-		AcceptRoutes:     f.AcceptRoutes,
-		AcceptDNS:        f.AcceptDns,
-		Logf:             logf,
+		Hostname: f.Hostname,
+		StateDir: f.StateDir,
+		AuthKey:  f.AuthKey,
+		Logf:     logf,
 	}
 	if f.Verbose {
 		cfg.DebugLogf = logf
 	}
 	return cfg
+}
+
+// prefFlags are the preferences run writes to the node. They outlive the
+// process — EditPrefs persists them in the state directory — so only the
+// commands that mean to configure the node take them.
+type prefFlags struct {
+	ExitNode         string `short:"e" placeholder:"NODE" help:"Send outbound traffic through an exit node: auto, auto:<expr>, a peer name, a Tailscale IP, or off."`
+	ExitNodeAllowLan bool   `name:"exit-node-allow-lan" short:"l" help:"Keep the local LAN reachable while an exit node is in use."`
+
+	AcceptRoutes bool `short:"r" negatable:"" default:"true" help:"Accept subnet routes advertised by subnet routers. On by default; disable with --no-accept-routes."`
+	AcceptDns    bool `name:"accept-dns" short:"a" negatable:"" default:"true" help:"Use the tailnet DNS configuration: MagicDNS, split DNS, exit-node DNS. On by default; disable with --no-accept-dns."`
+}
+
+func (f prefFlags) prefs() tsnode.Prefs {
+	return tsnode.Prefs{
+		ExitNode:         f.ExitNode,
+		ExitNodeAllowLAN: f.ExitNodeAllowLan,
+		AcceptRoutes:     f.AcceptRoutes,
+		AcceptDNS:        f.AcceptDns,
+	}
 }
 
 // listenFlags are the local front doors, shared by run and config.

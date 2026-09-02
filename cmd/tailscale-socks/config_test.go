@@ -7,25 +7,21 @@ import (
 	"github.com/d0whc3r/tailscale-socks/internal/tsnode"
 )
 
-// testConfigCmd is a fully resolved configCmd: every value is set, so a test
-// reading one of them cannot pass on a default it did not mean to check.
-func testConfigCmd() configCmd {
-	return configCmd{
+// testRun is a fully resolved run command: every value is set, so a test
+// reading one of them cannot pass on a default it did not mean to check. It is
+// what config reports on — config itself holds nothing but the key.
+func testRun() runCmd {
+	return runCmd{
 		listenFlags: listenFlags{Socks5: "127.0.0.1:1080", HTTP: "", DNS: "127.0.0.1:5354"},
-		nodeFlags: nodeFlags{
-			Hostname:     "ts-proxy",
-			StateDir:     "/tmp/state",
-			ExitNode:     "auto",
-			AcceptRoutes: true,
-			AcceptDns:    true,
-		},
+		nodeFlags:   nodeFlags{Hostname: "ts-proxy", StateDir: "/tmp/state"},
+		prefFlags:   prefFlags{ExitNode: "auto", AcceptRoutes: true, AcceptDns: true},
 	}
 }
 
 func TestConfigKey(t *testing.T) {
 	tests := []struct {
 		name, key, want string
-		edit            func(*configCmd)
+		edit            func(*runCmd)
 	}{
 		{name: "flag name", key: "socks5", want: "127.0.0.1:1080"},
 		{name: "environment variable", key: "TSPROXY_SOCKS5", want: "127.0.0.1:1080"},
@@ -37,20 +33,20 @@ func TestConfigKey(t *testing.T) {
 			name: "unset exit node",
 			key:  "exit-node",
 			want: "off",
-			edit: func(c *configCmd) { c.ExitNode = "" },
+			edit: func(r *runCmd) { r.ExitNode = "" },
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cmd := testConfigCmd()
-			cmd.Key = tt.key
+			run := testRun()
 			if tt.edit != nil {
-				tt.edit(&cmd)
+				tt.edit(&run)
 			}
+			cmd := configCmd{Key: tt.key}
 			var out strings.Builder
-			if err := cmd.write(&out); err != nil {
+			if err := cmd.write(&out, run); err != nil {
 				t.Fatalf("write() = %v", err)
 			}
 			// A bare value, so $(...) can take it as is.
@@ -62,10 +58,9 @@ func TestConfigKey(t *testing.T) {
 }
 
 func TestConfigUnknownKey(t *testing.T) {
-	cmd := testConfigCmd()
-	cmd.Key = "sock5"
+	cmd := configCmd{Key: "sock5"}
 	var out strings.Builder
-	err := cmd.write(&out)
+	err := cmd.write(&out, testRun())
 	if err == nil {
 		t.Fatalf("write() = nil, want an error")
 	}
@@ -79,10 +74,10 @@ func TestConfigUnknownKey(t *testing.T) {
 }
 
 func TestConfigDump(t *testing.T) {
-	cmd := testConfigCmd()
-	cmd.StateDir = "/tmp/we'ird dir"
+	run := testRun()
+	run.StateDir = "/tmp/we'ird dir"
 	var out strings.Builder
-	if err := cmd.write(&out); err != nil {
+	if err := (&configCmd{}).write(&out, run); err != nil {
 		t.Fatalf("write() = %v", err)
 	}
 	want := []string{
@@ -102,10 +97,10 @@ func TestConfigDump(t *testing.T) {
 // must never reach it is the auth key.
 func TestConfigNeverPrintsTheAuthKey(t *testing.T) {
 	const secret = "tskey-auth-notasecretanymore"
-	cmd := testConfigCmd()
-	cmd.AuthKey = secret
+	run := testRun()
+	run.AuthKey = secret
 	var out strings.Builder
-	if err := cmd.write(&out); err != nil {
+	if err := (&configCmd{}).write(&out, run); err != nil {
 		t.Fatalf("write() = %v", err)
 	}
 	if strings.Contains(out.String(), secret) {
@@ -115,14 +110,14 @@ func TestConfigNeverPrintsTheAuthKey(t *testing.T) {
 
 // The state directory is the only setting config has to derive itself.
 func TestConfigDefaultsTheStateDirToTheHostname(t *testing.T) {
-	cmd := testConfigCmd()
-	cmd.StateDir = ""
-	cmd.Key = "state-dir"
+	run := testRun()
+	run.StateDir = ""
+	cmd := configCmd{Key: "state-dir"}
 	var out strings.Builder
-	if err := cmd.write(&out); err != nil {
+	if err := cmd.write(&out, run); err != nil {
 		t.Fatalf("write() = %v", err)
 	}
-	want, err := tsnode.DefaultStateDir(cmd.Hostname)
+	want, err := tsnode.DefaultStateDir(run.Hostname)
 	if err != nil {
 		t.Fatalf("DefaultStateDir() = %v", err)
 	}
@@ -132,16 +127,15 @@ func TestConfigDefaultsTheStateDirToTheHostname(t *testing.T) {
 }
 
 // The config dump is the fourth place a flag has to be registered, and the
-// only one no other test covers: a flag that never reaches settings() is
+// only one no other test covers: a flag that never reaches settingsFor() is
 // silently missing from `tailscale-socks config`. The auth key is the
 // deliberate exception, being a credential.
 func TestConfigSettingsCoverEveryFlag(t *testing.T) {
 	t.Parallel()
 
-	cmd := testConfigCmd()
-	settings, err := cmd.settings()
+	settings, err := settingsFor(testRun())
 	if err != nil {
-		t.Fatalf("settings() = %v", err)
+		t.Fatalf("settingsFor() = %v", err)
 	}
 	envByFlag := make(map[string]string, len(settings))
 	for _, s := range settings {
@@ -154,22 +148,22 @@ func TestConfigSettingsCoverEveryFlag(t *testing.T) {
 		flags[f.Name] = true
 		if f.Name == "auth-key" {
 			if _, ok := envByFlag[f.Name]; ok {
-				t.Error("settings() exposes the auth key; it is a credential")
+				t.Error("settingsFor() exposes the auth key; it is a credential")
 			}
 			continue
 		}
 		env, ok := envByFlag[f.Name]
 		if !ok {
-			t.Errorf("--%s is missing from configCmd.settings()", f.Name)
+			t.Errorf("--%s is missing from settingsFor()", f.Name)
 			continue
 		}
 		if len(f.Envs) > 0 && env != f.Envs[0] {
-			t.Errorf("settings() reports --%s as %s, want %s", f.Name, env, f.Envs[0])
+			t.Errorf("settingsFor() reports --%s as %s, want %s", f.Name, env, f.Envs[0])
 		}
 	}
 	for flag := range envByFlag {
 		if !flags[flag] {
-			t.Errorf("settings() reports %q, which is not a flag any more", flag)
+			t.Errorf("settingsFor() reports %q, which is not a flag any more", flag)
 		}
 	}
 }

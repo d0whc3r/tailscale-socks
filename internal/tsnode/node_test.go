@@ -55,7 +55,7 @@ func TestStartWithUnusableStateDirFails(t *testing.T) {
 	}
 }
 
-// TestPrefsFor pins the mapping from Config onto the preferences the node is
+// TestPrefsFor pins the mapping from Prefs onto the preferences the node is
 // sent. Two ways to get this subtly wrong: wire a field to the wrong flag, or
 // forget its Set flag — then EditPrefs keeps the value from the last run and
 // the flag silently does nothing.
@@ -64,20 +64,20 @@ func TestPrefsFor(t *testing.T) {
 
 	// Exactly one flag on per case, so a field wired to the wrong flag fails.
 	tests := []struct {
-		name string
-		cfg  Config
-		want [3]bool // RouteAll, CorpDNS, ExitNodeAllowLANAccess
+		name  string
+		prefs Prefs
+		want  [3]bool // RouteAll, CorpDNS, ExitNodeAllowLANAccess
 	}{
-		{"nothing on", Config{}, [3]bool{false, false, false}},
-		{"accept-routes", Config{AcceptRoutes: true}, [3]bool{true, false, false}},
-		{"accept-dns", Config{AcceptDNS: true}, [3]bool{false, true, false}},
-		{"exit-node-allow-lan", Config{ExitNodeAllowLAN: true}, [3]bool{false, false, true}},
+		{"nothing on", Prefs{}, [3]bool{false, false, false}},
+		{"accept-routes", Prefs{AcceptRoutes: true}, [3]bool{true, false, false}},
+		{"accept-dns", Prefs{AcceptDNS: true}, [3]bool{false, true, false}},
+		{"exit-node-allow-lan", Prefs{ExitNodeAllowLAN: true}, [3]bool{false, false, true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			mp, err := prefsFor(tt.cfg, testStatus())
+			mp, err := prefsFor(tt.prefs, testStatus())
 			if err != nil {
 				t.Fatalf("prefsFor() = %v", err)
 			}
@@ -106,7 +106,7 @@ func TestPrefsFor(t *testing.T) {
 func TestPrefsForPropagatesABadExitNode(t *testing.T) {
 	t.Parallel()
 
-	if _, err := prefsFor(Config{ExitNode: "nosuchpeer"}, testStatus()); err == nil {
+	if _, err := prefsFor(Prefs{ExitNode: "nosuchpeer"}, testStatus()); err == nil {
 		t.Error("prefsFor() accepted an unknown exit node")
 	}
 }

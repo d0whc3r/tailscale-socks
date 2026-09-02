@@ -95,6 +95,8 @@ tailscale-socks upgrade         # replace the binary and the helpers with the la
 tailscale-socks --help          # also: run --help
 ```
 
+`run` takes the parameters below. The other two report, so they take almost nothing: `status` accepts `--hostname`, `--state-dir`, `--auth-key` and `--verbose`, the ones that say which node to join, and `config` accepts none at all — it prints what a `run` would resolve from the environment and the `.env` files.
+
 ## Parameters
 
 Settings come from the command line first, then the environment, then `.env` next to the binary, then `~/.tailscale/.env`. Every flag has a one-letter alias and an environment variable. [docs/flags.md](docs/flags.md) explains each one.

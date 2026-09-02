@@ -7,6 +7,11 @@ Every parameter can be given three ways — a flag, its one-letter alias, or an
 environment variable — and the environment variable can come from a `.env`
 file. [configuration.md](configuration.md) has the precedence rules.
 
+They all belong to `run`. `status` takes only `--hostname`, `--state-dir`,
+`--auth-key` and `--verbose` — the ones that say which node to join — and
+`config` takes none: the preferences below are written to the node and persist
+there, so a command that only reports does not carry them.
+
 ## Syntax
 
 Long flags take their value after a space or an `=`:

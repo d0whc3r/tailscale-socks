@@ -36,7 +36,7 @@ func TestRunRejectsBadFlagsBeforeJoining(t *testing.T) {
 		},
 		{
 			name: "dns server without tailnet dns",
-			cmd:  runCmd{listenFlags: listenFlags{DNS: "127.0.0.1:5354"}, nodeFlags: nodeFlags{AcceptDns: false}},
+			cmd:  runCmd{listenFlags: listenFlags{DNS: "127.0.0.1:5354"}, prefFlags: prefFlags{AcceptDns: false}},
 			want: "--no-accept-dns",
 		},
 		{
@@ -51,7 +51,7 @@ func TestRunRejectsBadFlagsBeforeJoining(t *testing.T) {
 		},
 		{
 			name: "dns address without a port",
-			cmd:  runCmd{listenFlags: listenFlags{DNS: "127.0.0.1"}, nodeFlags: nodeFlags{AcceptDns: true}},
+			cmd:  runCmd{listenFlags: listenFlags{DNS: "127.0.0.1"}, prefFlags: prefFlags{AcceptDns: true}},
 			want: "dns/udp: ",
 		},
 		{

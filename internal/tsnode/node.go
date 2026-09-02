@@ -28,6 +28,21 @@ type Config struct {
 	StateDir string // where to persist node state; "" means DefaultStateDir
 	AuthKey  string // optional auth key for unattended login
 
+	// Prefs, when non-nil, is written to the node once it is up. A nil Prefs
+	// leaves whatever the last run persisted alone: that is what a read-only
+	// caller passes, and the only way to be one, since EditPrefs would
+	// otherwise clear every preference this program masks.
+	Prefs *Prefs
+
+	// Logf receives user-facing messages (login URLs, state changes).
+	Logf logger.Logf
+	// DebugLogf receives tsnet's verbose internal logs. nil discards them.
+	DebugLogf logger.Logf
+}
+
+// Prefs are the tailnet preferences this program owns. They are persisted in
+// the state directory, so writing them outlives the process that wrote them.
+type Prefs struct {
 	// ExitNode is "", "off", "auto", "auto:<expr>", a peer name or a
 	// Tailscale IP. See setExitNode.
 	ExitNode string
@@ -41,11 +56,6 @@ type Config struct {
 	// exit-node DNS). Required for the DNS server and for resolving names
 	// through the tailnet.
 	AcceptDNS bool
-
-	// Logf receives user-facing messages (login URLs, state changes).
-	Logf logger.Logf
-	// DebugLogf receives tsnet's verbose internal logs. nil discards them.
-	DebugLogf logger.Logf
 }
 
 // Node is a running userspace Tailscale node.
@@ -83,7 +93,7 @@ func DefaultStateDir(hostname string) (string, error) {
 	return filepath.Join(conf, "tailscale-socks", hostname), nil
 }
 
-// Start brings the node up on the tailnet and applies cfg's preferences.
+// Start brings the node up on the tailnet and applies cfg.Prefs, if any.
 // The caller must Close the returned Node.
 func Start(ctx context.Context, cfg Config) (*Node, error) {
 	logf := cfg.Logf
@@ -128,9 +138,11 @@ func Start(ctx context.Context, cfg Config) (*Node, error) {
 	if mgr, ok := ts.Sys().DNSManager.GetOK(); ok {
 		n.dns = mgr
 	}
-	if err := n.applyPrefs(ctx, cfg, st); err != nil {
-		closeStarted(ts)
-		return nil, err
+	if cfg.Prefs != nil {
+		if err := n.applyPrefs(ctx, *cfg.Prefs, st); err != nil {
+			closeStarted(ts)
+			return nil, err
+		}
 	}
 	return n, nil
 }
@@ -145,29 +157,29 @@ func closeStarted(ts *tsnet.Server) {
 	}
 }
 
-// prefsFor maps cfg onto the preferences to send to the node. Every field this
+// prefsFor maps p onto the preferences to send to the node. Every field this
 // program owns is masked, or EditPrefs would keep the value from the last run
 // and the flag would do nothing. It is split from applyPrefs so the mapping can
 // be tested against a hand-built status, without a tailnet.
-func prefsFor(cfg Config, st *ipnstate.Status) (*ipn.MaskedPrefs, error) {
+func prefsFor(p Prefs, st *ipnstate.Status) (*ipn.MaskedPrefs, error) {
 	mp := &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
-			RouteAll:               cfg.AcceptRoutes,
-			CorpDNS:                cfg.AcceptDNS,
-			ExitNodeAllowLANAccess: cfg.ExitNodeAllowLAN,
+			RouteAll:               p.AcceptRoutes,
+			CorpDNS:                p.AcceptDNS,
+			ExitNodeAllowLANAccess: p.ExitNodeAllowLAN,
 		},
 		RouteAllSet:               true,
 		CorpDNSSet:                true,
 		ExitNodeAllowLANAccessSet: true,
 	}
-	if err := setExitNode(mp, cfg.ExitNode, st); err != nil {
+	if err := setExitNode(mp, p.ExitNode, st); err != nil {
 		return nil, err
 	}
 	return mp, nil
 }
 
-func (n *Node) applyPrefs(ctx context.Context, cfg Config, st *ipnstate.Status) error {
-	mp, err := prefsFor(cfg, st)
+func (n *Node) applyPrefs(ctx context.Context, p Prefs, st *ipnstate.Status) error {
+	mp, err := prefsFor(p, st)
 	if err != nil {
 		return err
 	}

@@ -72,9 +72,10 @@ $ eval "$(tailscale-socks config)"      # the whole set, quoted for the shell
 ```
 
 The key is the flag name or its variable — `socks5` and `TSPROXY_SOCKS5` are
-the same key. Flags still apply, so `tailscale-socks config -e auto` answers
-"what would that run use?". An empty value means a disabled listener. The auth
-key is never printed: this output is made to be piped and logged.
+the same key. `config` takes no flag of its own: it reports what a `run` would
+resolve from the environment and the `.env` files, and reporting is all it
+does. An empty value means a disabled listener. The auth key is never printed:
+this output is made to be piped and logged.
 
 ## The node summary
 
