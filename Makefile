@@ -139,11 +139,16 @@ check: lint test test-sh
 # Statement coverage, straight from the toolchain. `cover` prints the
 # per-function table with the module total on the last line; `cover-html`
 # opens the annotated source in a browser.
+#
+# -race to match `test`, because without it this is a second compile of the
+# whole tree into a different cache profile: CI would build tailscale.com twice
+# over to learn nothing new. The count comes out identical either way, so
+# `make cover` alone is the full test run plus the profile.
 COVERPROFILE := $(COVER)/cover.out
 
 cover:
 	@mkdir -p $(COVER)
-	go test -coverprofile=$(COVERPROFILE) ./...
+	go test -race -coverprofile=$(COVERPROFILE) ./...
 	@go tool cover -func=$(COVERPROFILE)
 
 cover-html: cover

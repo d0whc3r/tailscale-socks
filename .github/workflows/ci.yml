@@ -36,15 +36,17 @@ jobs:
       # the shorter, and linking the binary is the one thing `go test` skips.
       - run: make build
 
+  # One `make cover` and not `make test` before it: cover carries -race too, so
+  # it is the whole test run plus the profile. Two targets meant compiling
+  # tailscale.com twice into two cache profiles for the same result.
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/go
-      - run: make test
       # Coverage lands in the run summary, so every push and pull request shows
       # the number without an external service, a token or a third-party action.
-      - name: coverage
+      - name: test and coverage
         run: |
           make cover
           {
