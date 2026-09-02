@@ -13,6 +13,9 @@
 #   ts_uninstall   stop it and remove the service
 #   ts_proxy       point this shell's commands at the proxies: on, off, show
 #
+# Tab completion for those and for the binary is registered too, when compinit
+# has already run: keep the source line below your compinit.
+#
 # The binary is found on $PATH; override with TS_SOCKS_BIN. Flags are not
 # passed here: the service reads ~/.tailscale/.env, like every other
 # invocation.
@@ -220,3 +223,73 @@ ts_proxy() {
       ;;
   esac
 }
+
+# --- completion -------------------------------------------------------------
+#
+# The candidates come from the binary's own help and `config` output, so a new
+# flag or setting completes without a second list to keep in step here.
+
+# _ts_flags COMMAND prints the long flags of one subcommand. Kong prints them
+# one per line under "Flags:", as "-s, --socks5=ADDR", and a negatable one as
+# "--[no-]accept-dns", which stands for two flags.
+_ts_flags() {
+  local bin
+  bin=$(_ts_bin 2>/dev/null) || return
+  $bin $1 --help 2>&1 | awk '
+    /^Flags:/ { flags = 1; next }
+    !flags    { next }
+    {
+      for (i = 1; i <= 2; i++) if ($i ~ /^--/) {
+        split($i, part, "=")
+        name = part[1]
+        if (name ~ /^--\[no-\]/) {
+          sub(/\[no-\]/, "", name); print name
+          sub(/^--/, "--no-", name)
+        }
+        print name
+      }
+    }' | sort -u
+}
+
+# _ts_settings prints the name of every setting `config` answers to.
+_ts_settings() {
+  local bin env
+  bin=$(_ts_bin 2>/dev/null) || return
+  $bin config 2>/dev/null | while IFS='=' read -r env _; do
+    print -r -- ${${${(L)env}#tsproxy_}//_/-}
+  done
+}
+
+_tailscale_socks() {
+  local cmd=$words[2]
+  local -a matches
+  if [[ $words[CURRENT] == -* ]]; then
+    # run is the default command, so its flags are valid without naming it.
+    [[ $cmd == (run|status|config|upgrade) ]] || cmd=run
+    matches=( ${(f)"$(_ts_flags $cmd)"} )
+  elif (( CURRENT == 2 )); then
+    matches=( run status config upgrade )
+  elif [[ $cmd == config ]]; then
+    matches=( ${(f)"$(_ts_settings)"} )
+  fi
+  (( $#matches )) && compadd -a matches
+}
+
+_ts_proxy() { compadd on off show }
+_ts_logs()  { compadd -- -f }
+
+# _ts_compdefs registers the completions above. compdef exists only once
+# compinit has run, and the source line in ~/.zshrc may sit above it: skipping
+# is the whole recovery, the functions still work, only the Tab does not.
+_ts_compdefs() {
+  compdef _tailscale_socks tailscale-socks
+  compdef _ts_proxy ts_proxy
+  compdef _ts_logs ts_logs
+  compdef _nothing ts_install ts_up ts_down ts_restart ts_status ts_uninstall
+}
+
+# An `if`, not `&&`: the last status is what `source` returns, and a shell
+# without compdef must not make sourcing this file look like a failure.
+if (( $+functions[compdef] )); then
+  _ts_compdefs
+fi

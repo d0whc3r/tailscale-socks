@@ -46,3 +46,27 @@ stub_exe() {
   chmod +x "$dir/$1"
   export PATH="$dir:$PATH"
 }
+
+# stub_help_bin puts a fake tailscale-socks on $PATH that answers the two
+# things the completion reads: `--help`, with Kong-shaped output, and
+# `config`, with the resolved settings.
+stub_help_bin() {
+  local dir="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$dir"
+  cat > "$dir/tailscale-socks" <<'STUB'
+#!/bin/sh
+case $* in
+  *--help)
+    printf 'Usage: tailscale-socks\n\n  --not-a-flag  only in the description\n\n'
+    printf 'Flags:\n  -h, --help    Show help.\n'
+    printf '  -s, --socks5="127.0.0.1:1080"    SOCKS5 listen address.\n'
+    printf '  -r, --[no-]accept-routes    Accept subnet routes.\n'
+    ;;
+  config)
+    printf "TSPROXY_SOCKS5='127.0.0.1:1080'\nTSPROXY_EXIT_NODE_ALLOW_LAN='false'\n"
+    ;;
+esac
+STUB
+  chmod +x "$dir/tailscale-socks"
+  export PATH="$dir:$PATH"
+}

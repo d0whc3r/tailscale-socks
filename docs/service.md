@@ -17,6 +17,8 @@ source /path/to/tailscale-socks/contrib/tailscale-socks.zsh
 | `ts_uninstall` | stop it and remove the service |
 | `ts_proxy on\|off\|show` | send this shell's commands through the proxies |
 
+The same `source` line registers Tab completion — the functions above, and `tailscale-socks` itself: its commands, the flags of the command in play, and the setting names `config` takes. Candidates are read from the binary, so they cannot drift. `compdef` exists only after `compinit`, so keep the source line below yours in `~/.zshrc`; without it the functions still work and only the Tab does not.
+
 The service runs `tailscale-socks run` with no flags: configuration stays in `~/.tailscale/.env`, same as any other invocation. Edit it and `ts_restart`.
 
 The binary is taken from `$PATH` (symlinks resolved) at install time; override with `TS_SOCKS_BIN`. Move the binary and re-run `ts_install`. The login is not affected: the state directory keys on the hostname, not on the path.
