@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/alecthomas/kong"
@@ -140,5 +142,121 @@ func TestNodeFlagsConfig(t *testing.T) {
 	}
 	if loud := (nodeFlags{Verbose: true}).config(logf); loud.DebugLogf == nil {
 		t.Error("config() with --verbose left DebugLogf nil")
+	}
+}
+
+// help renders one command's help page the way main does, and returns it.
+func help(t *testing.T, args ...string) string {
+	t.Helper()
+
+	var c cli
+	var out bytes.Buffer
+	parser, err := kong.New(&c,
+		kong.Name("tailscale-socks"),
+		kong.DefaultEnvars("TSPROXY"),
+		kong.Description(description),
+		kong.Help(helpPrinter),
+		kong.PostBuild(hideSharedFlags),
+		kong.Vars{"version": "test"},
+		kong.Writers(&out, &out),
+		kong.Exit(func(int) {}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// kong.Exit is a no-op here, so parsing runs on past --help and may then
+	// complain about a missing command; the help is already out.
+	_, _ = parser.Parse(append(args, "--help"))
+	return out.String()
+}
+
+// TestHelpFlagsPerCommand pins the help pages. The node and listen flags reach
+// status and config too, but only run is about them, so only run lists them —
+// bar --verbose, which stays on status because status also brings the node up.
+// Only a page that lists a flag keeps kong's "[flags]".
+func TestHelpFlagsPerCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		want     []string
+		unwanted []string
+	}{
+		{
+			name:     "root",
+			want:     []string{"Usage: tailscale-socks <command> [flags]", "run [flags]", "status [flags]"},
+			unwanted: []string{"config [<key>] [flags]", "upgrade [flags]", "--hostname"},
+		},
+		{
+			name: "run",
+			args: []string{"run"},
+			want: []string{"Usage: tailscale-socks run [flags]", "--socks5", "--hostname", "--[no-]accept-dns"},
+		},
+		{
+			name:     "status",
+			args:     []string{"status"},
+			want:     []string{"Usage: tailscale-socks status [flags]", "-v, --verbose"},
+			unwanted: []string{"--hostname", "--exit-node", "--socks5"},
+		},
+		{
+			name:     "config",
+			args:     []string{"config"},
+			want:     []string{"Usage: tailscale-socks config [<key>]\n"},
+			unwanted: []string{"[flags]", "--socks5", "--hostname"},
+		},
+		{
+			name:     "upgrade",
+			args:     []string{"upgrade"},
+			want:     []string{"Usage: tailscale-socks upgrade\n"},
+			unwanted: []string{"[flags]"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := help(t, tt.args...)
+			for _, w := range tt.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("help is missing %q:\n%s", w, got)
+				}
+			}
+			for _, u := range tt.unwanted {
+				if strings.Contains(got, u) {
+					t.Errorf("help still shows %q:\n%s", u, got)
+				}
+			}
+		})
+	}
+}
+
+// TestHiddenFlagsStillParse guards what hideSharedFlags must not do: the flags
+// are off the help page of status and config, not off the command line. status
+// needs them to reach the same node as run, and config is the one command that
+// exists to resolve them.
+func TestHiddenFlagsStillParse(t *testing.T) {
+	t.Parallel()
+
+	var c cli
+	parser, err := kong.New(&c,
+		kong.DefaultEnvars("TSPROXY"),
+		kong.PostBuild(hideSharedFlags),
+		kong.Vars{"version": "test"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse([]string{"status", "--hostname", "box", "--exit-node", "auto"}); err != nil {
+		t.Fatalf("status with hidden flags: %v", err)
+	}
+	if c.Status.Hostname != "box" || c.Status.ExitNode != "auto" {
+		t.Errorf("status flags = %q/%q, want box/auto", c.Status.Hostname, c.Status.ExitNode)
+	}
+	if _, err := parser.Parse([]string{"config", "--socks5", "127.0.0.1:9050", "socks5"}); err != nil {
+		t.Fatalf("config with hidden flags: %v", err)
+	}
+	if c.Config.Socks5 != "127.0.0.1:9050" {
+		t.Errorf("config --socks5 = %q, want 127.0.0.1:9050", c.Config.Socks5)
 	}
 }

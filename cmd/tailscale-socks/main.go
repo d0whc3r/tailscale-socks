@@ -38,6 +38,8 @@ func main() {
 		kong.DefaultEnvars("TSPROXY"),
 		kong.Description(description),
 		kong.UsageOnError(),
+		kong.Help(helpPrinter),
+		kong.PostBuild(hideSharedFlags),
 		kong.Vars{"version": version()},
 	)
 
