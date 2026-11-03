@@ -4,6 +4,11 @@
   "schedule": ["before 6am on Monday"],
   "packageRules": [
     {
+      "description": "Write complete go.sum entries, including tool zip hashes",
+      "matchManagers": ["gomod"],
+      "postUpdateOptions": ["gomodTidy"]
+    },
+    {
       "description": "Group routine Go updates; major module changes can require import-path migration",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["minor", "patch"],
