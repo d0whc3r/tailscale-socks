@@ -7,7 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/things-go/go-socks5 v0.1.4
 	golang.org/x/net v0.62.0
-	tailscale.com v1.104.4
+	tailscale.com v1.104.5
 )
 
 require (
